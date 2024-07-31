@@ -354,7 +354,6 @@ The processor performs the following function:
 
 The full spec of the CPU to be used can be found at [rp2040 Datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 
-
 ## rp2040 pinout
 
 ![Alt Text](rp2040-pinout.webp?raw=true "rp2040 Zero pinout Diagram")
@@ -362,7 +361,6 @@ The full spec of the CPU to be used can be found at [rp2040 Datasheet](https://d
 
 Each GPIO line has several functions which can be seen in the diagram of the larger pinout
 ![Alt Text](pico-pinout.svg?raw=true "Raspberry pico pinout (larger)")
-
 
 # Firmware
 
@@ -372,6 +370,14 @@ The processor perform several tasks controlled by the firmware such as:
 * Management of the configuration (EEPROM) and operating modes.
 * Generation of FSK modulation thru the Si5351 clock generator.
 * Provide external control means (CAT).
+
+## Package pre-requisites
+
+In order to develop for the rp2040 firmware a build chain with pre-requisite libraries needs to be created
+
+```
+
+```
 
 
 ## Build chain
@@ -394,14 +400,6 @@ Code excerpts gathered from manyfold sources to recognize here, large pieces of 
 * [PixiePi](https://github.com/lu7did/PixiePi).
 * [Pixino](https://github.com/lu7did/Pixino).
 * [OrangeThunder](https://github.com/lu7did/OrangeThunder).
-
-# Package requirements
-
-In order to develop for the rp2040 firmware a build chain with pre-requisite libraries needs to be created
-
-```
-
-```
 
 ## Code architecture
 
@@ -438,22 +436,6 @@ or excluded from the build process.
 
 
 
-## Code components
-
-```
-mandatory files
- 
-ADX_rp2040.ino
-
-PIO programming (counting method)
-
-freqPIO.cpp
-freqPIO.pio
-freqPIO.pio.h
-
-
-```
-
 ## Transmission Algorithms
 
 The ADX transceiver by Barb (WB2CBA) owes in part it's popularity to it's simplicity, and no small part of it derives from the very simple, yet effective, way
@@ -489,6 +471,22 @@ might present noises which trigger false counts.
 
 ```
 
+
+## Code components
+
+```
+mandatory files
+ 
+ADX_rp2040.ino
+
+PIO programming (counting method)
+
+freqPIO.cpp
+freqPIO.pio
+freqPIO.pio.h
+
+
+```
 
 # Custom control board
 
@@ -652,6 +650,8 @@ PixiePi/bash/pixie.sh has sample on how to implement a pipe based to enable rigc
 In general the hardware can be used to implement modulation modes proposed by the [rpitx package](https://github.com/F5OEO/rpitx).
 In some cases the RF chain after the Raspberry Pi needs to be activated, the hardware on this project uses the
 GPIO12 line as the PTT, some programs might require this line to be activated or deactivated externally.
+
+
 
 
 
