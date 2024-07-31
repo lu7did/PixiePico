@@ -106,7 +106,10 @@ Remember that most national regulations requires the armonics and other spurious
 
 The overall transceiver involves four major subsystems as shown in the following figure
 
-![Alt Text](PixiePico.jpg?raw=true "PixiePico Block Diagram")
+| ![Alt Text](PixiePico.jpg?raw=true "PixiePico Block Diagram") |
+|:--:| 
+| *PixiePico System Block Diagram* |
+
 
 * **RF modem**
 Implemented with a modified Pixie HF 7 MHz transceiver kit.
@@ -167,7 +170,10 @@ The kit needs to be build using the instructions provided by the kit manufacture
 isn't the goal of the project but a 28 MHz FT8 one. Therefore, several mods are needed departing from the basic
 kit building. A typical circuit for the kit might be:
 
-![Alt Text](PixiePi_Schematics.jpg?raw=true "PixiePi Schematics")
+| ![Alt Text](PixiePi_Schematics.jpg?raw=true "Pixie Kit Schematics") |
+|:--:| 
+| *Typical Pixie kit schematic* |
+
 
 This circuit is actually used as a starting point, but some modifications are needed to:
 
@@ -203,7 +209,10 @@ In order to adapt the kit to perform as the RF modem of this project the followi
 * Assure all four boards (interface, Pixie, Raspberry Pico and Si5351) share a common ground.
 * Extract +9V from the Pixie +9V socket, feed the control board's LM7805 with it, then feed the Raspberry Pico board with it.
 ```
-![Alt Text](pixie_pcb.jpg?raw=true "PixiePi PCB mods")
+| ![Alt Text](pixie_pcb.jpg?raw=true "Pixie kit PCB mods") |
+|:--:| 
+| *Pixie kit PCB mods* |
+
 
 All additional interface circuitry might be constructed on a prototype perfboard or using the Manhattan
 technique.
@@ -238,23 +247,38 @@ In such condition it should provide an RF power of
 $P_{o}= \frac {V_{cc}^2}{2 \dot R_{L}} \approx 810 mW$
 
 Calculating the new values for $C_{1}$ , $C_{2}$ and $L_{1}$ the circuit is left as
-![Alt Text](PixiePico_LTSpice_PiFilter_Circuit.png?raw=true "Pi Filter Frequency Response")
+
+| ![Alt Text](PixiePico_LTSpice_PiFilter_Circuit.png?raw=true "PA BPF Pi circuit ") |
+|:--:| 
+| *LTSpice circuit PA Pi Filter* |
+
 
 The frequency response of the new Pi filter would be
 
-![Alt Text](PixiePico_LTSpice_PiFilter_Response.png?raw=true "Pi Filter Frequency Response")
+| ![Alt Text](PixiePico_LTSpice_PiFilter_Response.png?raw=true "Pi Filter Frequency Response") |
+|:--:| 
+| *LTSpice simulation PA Pi filter frequency response* |
+
 
 The new Pixie circuit would be
 
-![Alt Text](PixiePico_LTSpice_TX_Circuit.png?raw=true "Pixie transmitter modified circuit")
+| ![Alt Text](PixiePico_LTSpice_TX_Circuit.png?raw=true "Pixie transmitter modified circuit") |
+|:--:| 
+| *LTSpice Pixie transceiver modified output* |
+
 
 The main values of signal in the circuit will be
 
-![Alt Text](PixiePico_LTSpice_TX_SignalAnalysis.png?raw=true "Pixie transmitter signal analysis")
+| ![Alt Text](PixiePico_LTSpice_TX_SignalAnalysis.png?raw=true "Pixie transmitter signal analysis") |
+|:--:| 
+| *LTSpice simulation Pixie signal analysis* |
 
 The frequency response by design would be
 
-![Alt Text](PixiePico_LTSpice_TX_FFT.png?raw=true "Pixie transmitter harmonics")
+| ![Alt Text](PixiePico_LTSpice_TX_FFT.png?raw=true "Pixie transmitter harmonics") |
+|:--:| 
+| *LTSpice simulation transmitter harmonics* |
+
 
 The first harmonic is -20 dB below fundamental, a little bit higher than expected, it needs to be worked out to at least -30 dB, the remaining harmonics are quite adequate.
 
@@ -266,9 +290,18 @@ modes such as *FT-8*
 
 An audio band pass filter needs to be added between the audio coming from the local computer (running WSJT-X) and the signal processing pin of the CPU
 
-![Alt Text](PixiePico_LTSpice_AFFilter_Circuit.png?raw=true "AF in Band Pass Filter")
-![Alt Text](PixiePico_LTSpice_AFFilter_SignalAnalysis.png?raw=true "AF in filter signal analysis")
-![Alt Text](PixiePico_LTSpice_AFFilter_FreqAnalysis.png?raw=true "AF in filter frequency response")
+| ![Alt Text](PixiePico_LTSpice_AFFilter_Circuit.png?raw=true "AF in Band Pass Filter") |
+|:--:| 
+| *LTSpice Audio band pass filter* |
+
+| ![Alt Text](PixiePico_LTSpice_AFFilter_SignalAnalysis.png?raw=true "AF in filter signal analysis") |
+|:--:| 
+| *LTSpice Audio band pass filter signal analysis* |
+
+| ![Alt Text](PixiePico_LTSpice_AFFilter_FreqAnalysis.png?raw=true "AF in filter frequency response") |
+|:--:| 
+| *LTSpice Audio band filter frequency response* |
+
 
 
 ### Audio limiter 
@@ -276,8 +309,16 @@ An audio band pass filter needs to be added between the audio coming from the lo
 Also, in order for the firmware to detect the frequency with high accuracy an edge detector algorithm will be used,
 therefore a crisp flank need to be present in the incoming signal.
 
-![Alt Text](PixiePico_LTSpice_AFFilterLimiter_Circuit.png?raw=true "AF Circuit and limiter")
-![Alt Text](PixiePico_LTSpice_AFFilterLimiter_SignalAnalysis.png?raw=true "AF Circuit and limiter")
+
+| ![Alt Text](PixiePico_LTSpice_AFFilterLimiter_Circuit.png?raw=true "AF Circuit and limiter") |
+|:--:| 
+| *LTSpice simulation AF circuit limiter and edge enhancer* |
+
+
+| ![Alt Text](PixiePico_LTSpice_AFFilterLimiter_SignalAnalysis.png?raw=true "AF Circuit and limiter") |
+|:--:| 
+| *LTSpice simulation AF circuit limiter signal analysis* |
+
 
 
 ### Improved PA heat management
@@ -356,11 +397,22 @@ The full spec of the CPU to be used can be found at [rp2040 Datasheet](https://d
 
 ## rp2040 pinout
 
-![Alt Text](rp2040-pinout.webp?raw=true "rp2040 Zero pinout Diagram")
-![Alt Text](rp2040Z.jpeg?raw=true "rp2040 Zero pinout Diagram")
+| ![Alt Text](rp2040-pinout.webp?raw=true "rp2040 Zero pinout Diagram") |
+|:--:| 
+| *rp2040 Zero pinout* |
+
+
+| ![Alt Text](rp2040Z.jpeg?raw=true "rp2040 Zero pinout Diagram") |
+|:--:| 
+| *rp2040 Zero pinout* |
+
 
 Each GPIO line has several functions which can be seen in the diagram of the larger pinout
-![Alt Text](pico-pinout.svg?raw=true "Raspberry pico pinout (larger)")
+
+| ![Alt Text](pico-pinout.svg?raw=true "Raspberry pico pinout (larger)") |
+|:--:| 
+| *rp2040 block diagram* |
+
 
 # Firmware
 
@@ -426,7 +478,11 @@ definition on one of the PIO of the processor (RISC processor).
 
 The code port was made starting with the [ADX_UnO_V1.3](https://github.com/WB2CBA/ADX-UnO-V1.3) as available at the GitHub site by Nov,15th 2022,
 no automatic synchronization mechanism has been established with it. The overall logic cycle of the firmware can be seen in the following figure.
-![Alt Text](ADX-rp2040_activity.png "ADX-rp2040 Activity")
+
+
+| ![Alt Text](ADX-rp2040_activity.png "ADX-rp2040 Activity") |
+|:--:| 
+| *PixiePico Acitivity diagram tone frequency counting algorithm* |
 
 The main functionality is contained in the file ADX_rp2040.ino which is compiled by using the Arduino IDE supplied with the stated
 libraries, different subsystems are made dependent on configuration directives (#define on the microcode, typically to signal the
@@ -492,14 +548,22 @@ freqPIO.pio.h
 
 
 # Si5351 Clock generator (DDS)
-![Alt Text](si5351.jpg?raw=true "Si5351 breakout board")
+
+| ![Alt Text](si5351.jpg?raw=true "Si5351 breakout board") |
+|:--:| 
+| *Si5351 Clock generator break out board* |
+
 
 
 # Hardware
 
 The following is the overall schematic for the project hardware
 
-![Alt Text](PixiePico_Schematic.png?raw=true "Pixie Pico Schematic")
+
+| ![Alt Text](PixiePico_Schematic.png?raw=true "Pixie Pico Schematic") |
+|:--:| 
+| *PixiePico Circuit schematics* |
+
 
 
 
@@ -656,4 +720,42 @@ GPIO12 line as the PTT, some programs might require this line to be activated or
 
 
 
+[TOC Generator](https://luciopaiva.com/markdown-toc/)
+jupyter nbconvert PixiePico.ipynb --to markdown
 
+# Table of contents
+
+- [PixiePico](#pixiepico)
+- [Introduction](#introduction)
+  - [Previous work](#previous-work)
+- [System design](#system-design)
+  - [Pixie 7 MHz CW Transceiver kit](#pixie-7-mhz-cw-transceiver-kit)
+  - [Pixie transceiver kit](#pixie-transceiver-kit)
+  - [Pixie kit building](#pixie-kit-building)
+  - [Components not used](#components-not-used)
+  - [Kit modifications](#kit-modifications)
+  - [Circuit modifications](#circuit-modifications)
+  - [Other alternatives](#other-alternatives)
+- [Main processor (ARM rp2040 board)](#main-processor-arm-rp2040-board)
+  - [rp2040 datasheet](#rp2040-datasheet)
+  - [rp2040 pinout](#rp2040-pinout)
+- [Firmware](#firmware)
+  - [Build chain](#build-chain)
+- [Package requirements](#package-requirements)
+  - [Code architecture](#code-architecture)
+  - [Code components](#code-components)
+  - [Transmission Algorithms](#transmission-algorithms)
+- [Custom control board](#custom-control-board)
+- [Si5351 Clock generator (DDS)](#si5351-clock-generator-dds)
+- [Hardware](#hardware)
+  - [Prototype (Under construction)](#prototype-under-construction)
+- [Case 3D Design (under construction)](#case-3d-design-under-construction)
+- [Release notes:](#release-notes)
+- [Operation (OTA)](#operation-ota)
+  - [Headless operation (all controls thru CAT)](#headless-operation-all-controls-thru-cat)
+  - [WSPR](#wspr)
+  - [Operating FT8](#operating-ft8)
+- [CAT Control](#cat-control)
+  - [FLRig](#flrig)
+  - [RigCtl](#rigctl)
+- [Other packages](#other-packages)
