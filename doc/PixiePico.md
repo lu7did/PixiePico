@@ -360,6 +360,10 @@ Even if the Pixie Kit is used for the project the software could be used directl
 
 Lots of good QRPp projects can be found at [link](http://www.ncqrpp.org/) or SPRAT magazine [link](http://www.gqrp.com/sprat.htm).
 
+#### Standard SSB transceiver 
+
+Obviously the Pixie Kit board can be replaced by **any** transceiver capable to operate in SSB (USB) at the intended frequency, in fact in any frequency the transceiver is capable of. Modifications needs to be done to use the Si5351 signal to control the frequency of the transceiver, the audio chain needs no modification.
+
 #### NOT really in the same level than
 
 This project isn't a serious alternative to some excellent DIY Kits available in the market, which deliver tons of good features at reasonable cost. This project must be seen as a learning platform enabling a very cheap DIY kit with many intrisic limitations to be used as an experimentation platform.
@@ -722,40 +726,3 @@ GPIO12 line as the PTT, some programs might require this line to be activated or
 
 [TOC Generator](https://luciopaiva.com/markdown-toc/)
 jupyter nbconvert PixiePico.ipynb --to markdown
-
-# Table of contents
-
-- [PixiePico](#pixiepico)
-- [Introduction](#introduction)
-  - [Previous work](#previous-work)
-- [System design](#system-design)
-  - [Pixie 7 MHz CW Transceiver kit](#pixie-7-mhz-cw-transceiver-kit)
-  - [Pixie transceiver kit](#pixie-transceiver-kit)
-  - [Pixie kit building](#pixie-kit-building)
-  - [Components not used](#components-not-used)
-  - [Kit modifications](#kit-modifications)
-  - [Circuit modifications](#circuit-modifications)
-  - [Other alternatives](#other-alternatives)
-- [Main processor (ARM rp2040 board)](#main-processor-arm-rp2040-board)
-  - [rp2040 datasheet](#rp2040-datasheet)
-  - [rp2040 pinout](#rp2040-pinout)
-- [Firmware](#firmware)
-  - [Build chain](#build-chain)
-- [Package requirements](#package-requirements)
-  - [Code architecture](#code-architecture)
-  - [Code components](#code-components)
-  - [Transmission Algorithms](#transmission-algorithms)
-- [Custom control board](#custom-control-board)
-- [Si5351 Clock generator (DDS)](#si5351-clock-generator-dds)
-- [Hardware](#hardware)
-  - [Prototype (Under construction)](#prototype-under-construction)
-- [Case 3D Design (under construction)](#case-3d-design-under-construction)
-- [Release notes:](#release-notes)
-- [Operation (OTA)](#operation-ota)
-  - [Headless operation (all controls thru CAT)](#headless-operation-all-controls-thru-cat)
-  - [WSPR](#wspr)
-  - [Operating FT8](#operating-ft8)
-- [CAT Control](#cat-control)
-  - [FLRig](#flrig)
-  - [RigCtl](#rigctl)
-- [Other packages](#other-packages)
