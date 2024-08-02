@@ -124,7 +124,9 @@ Implemented with a Clock Generator Si5351 break out board.
 Custom ad-hoc board with the following functions
    * +9V to +5V regulator.
    * RX/TX Switch.
-   * Audio In (LINE-IN) signal filtering and conditioning.
+   * Audio In/Out filtering and conditioning.
+   * Fan control.
+   * Si5351 calibration.
 
 Each major block can be built and tested separately, the construction effort is really small as only is required 
 by the custom ad-hoc control board.
@@ -136,6 +138,7 @@ The Pixie QRPp Kit (very low power, less than 1W output) transceiver is a very p
 Although really small power can be enough to sustain communications over great distances and therefore not being a per se limiting factor there are other factors in the basic implementation which makes difficult to carry communications except on very favorable conditions.
 
 An explanation of how the transceiver work can be found [here](http://w1sye.org/wp-content/uploads/2017/01/NCRC_PixieOperation.pdf).
+
 
 This project starts with a working Pixie transceiver (a cheap kit bought at eBay or other sellers) and to integrate it with other systems to provide the signal generation and other control functionality.
 
@@ -150,6 +153,41 @@ The rest of the code deals mostly with the user interface and operating features
 
 
 
+
+## RF power discussion
+
+The **input** power in transmission mode can be estimated with:
+
+$P_{o}=\frac{V_{cc}^2}{2R_{L}}$
+
+With $V_{cc}$=9V and $R_{L}=50 \Omega$ the $P_{o}$=810 mW.
+
+With $V_{cc}$=12V the output power would be $P_{o}$=1.44W, but even if the power is higher the disipation (heat) on the output transitor, specially during long key down periods, would be much higher.
+
+Also with $V_{cc}$=5V and $R_{L}=50 \Omega$ the $P_{o}$=250 mW, however even if the power output can be enough for local experimentation, the main circuit will need to be modified for the +5V regulator to work properly.
+
+Operating using FT-8 the mode has a signal-to-noise (SNR) advantage over CW in the order of 6-10 dB, therefore even with a 9V supply iw will be equivalent to 3.5W to 8W of output power in CW, more than adequate QRP levels. Using the same reasoning FT8 would provide a SNR advantage over SSB in the order of 20 dB, therefore 810 mW would provide a communication capability equivalent to voice contact using 80W of power.
+
+Assuming the operation will use $V_{cc}=9V$ and the conduction angle $\theta$=180 degrees (class B) the effective output power will be 
+
+
+$P_{o}=\frac{v_{ef}^2}{2R_{L}}$
+
+and the CC power will be
+
+$P_{cc}=V_{cc}\hat{I_{cc}}= \frac{2V_{cc}^2}{\pi R_{L}}$
+
+So the efficiency of the stage will be
+
+$\eta=\frac {P_{o}}{P_{cc}}=\frac{\pi}{4}$=78.5%
+
+As the conduction angle $\theta\leq$ 180 the $P_{cc}$ is reduced according with the relation 
+
+$\eta=\frac{\theta-\sin{\theta}}{4\sin{\frac{\theta}{2}}-2\theta\cos{\frac{\theta}{2}}}$
+
+The equilibrium between a reasonable efficiency  and higher output power is achieved when $\eta$=60% which means that about 40-50% of the
+output power will be dissipated as heat.
+ 
 
 ## Pixie transceiver kit
 
@@ -283,44 +321,6 @@ The frequency response by design would be
 The first harmonic is -20 dB below fundamental, a little bit higher than expected, it needs to be worked out to at least -30 dB, the remaining harmonics are quite adequate.
 
 
-### Modified audio filter
-
-The original kit is intended to operate in CW whereas this kit has to be optimized to operate in low signal
-modes such as *FT-8*
-
-An audio band pass filter needs to be added between the audio coming from the local computer (running WSJT-X) and the signal processing pin of the CPU
-
-| ![Alt Text](PixiePico_LTSpice_AFFilter_Circuit.png?raw=true "AF in Band Pass Filter") |
-|:--:| 
-| *LTSpice Audio band pass filter* |
-
-| ![Alt Text](PixiePico_LTSpice_AFFilter_SignalAnalysis.png?raw=true "AF in filter signal analysis") |
-|:--:| 
-| *LTSpice Audio band pass filter signal analysis* |
-
-| ![Alt Text](PixiePico_LTSpice_AFFilter_FreqAnalysis.png?raw=true "AF in filter frequency response") |
-|:--:| 
-| *LTSpice Audio band filter frequency response* |
-
-
-
-### Audio limiter 
-
-Also, in order for the firmware to detect the frequency with high accuracy an edge detector algorithm will be used,
-therefore a crisp flank need to be present in the incoming signal.
-
-
-| ![Alt Text](PixiePico_LTSpice_AFFilterLimiter_Circuit.png?raw=true "AF Circuit and limiter") |
-|:--:| 
-| *LTSpice simulation AF circuit limiter and edge enhancer* |
-
-
-| ![Alt Text](PixiePico_LTSpice_AFFilterLimiter_SignalAnalysis.png?raw=true "AF Circuit and limiter") |
-|:--:| 
-| *LTSpice simulation AF circuit limiter signal analysis* |
-
-
-
 ### Improved PA heat management
 
 FT8 requires a 15 secs key down of continuous transmission compared with few milliseconds of a repetitive Morse code clicking pattern. Even operating with a 9V supply the final transistor might become quite hot because of the lonw keydown and probably will burn out even on casual operation. WSPR is even worse as it transmit for over 120 secs at a time.
@@ -418,137 +418,22 @@ Each GPIO line has several functions which can be seen in the diagram of the lar
 | *rp2040 block diagram* |
 
 
+## rp2040Z pin assignment
+
+| ![Alt Text](PixiePico_pinout.png?raw=true "rp2040Z pin assignment") |
+|:--:| 
+| *rp2040 pin assignment* |
+
+
 # Firmware
 
-The processor perform several tasks controlled by the firmware such as:
+This project uses the firmware supported by the project [ADX-rp2040-mbed](http://www.github.com/lu7did/ADX-rp2040), proceed with the installation and configuration instructions defined in the repository for that project.
 
-* Overall housekeeping of the transceiver.
-* Management of the configuration (EEPROM) and operating modes.
-* Generation of FSK modulation thru the Si5351 clock generator.
-* Provide external control means (CAT).
-
-## Package pre-requisites
-
-In order to develop for the rp2040 firmware a build chain with pre-requisite libraries needs to be created
-
-```
-
-```
-
-
-## Build chain
-
-The development environment used is the Arduino IDE, even with some limitations it's far more easy to setup and operate than the Eclipse IDE alternative and present a much smoother transition from development for the Arduino environment into the rp2040 environment.
-
-The usage of the Arduino IDE is based on the [arduino pico core libraries developed by Earle F. Philhower, III](https://github.com/earlephilhower/arduino-pico).
-In order to install it a tutorial can be found [here](https://www.tomshardware.com/how-to/program-raspberry-pi-pico-with-arduino-ide) or
-[here](https://www.upesy.com/blogs/tutorials/install-raspberry-pi-pico-on-arduino-ide-software).
-
-Basic support
-
-* Earl E Philhower rp2040 core porting to Arduino IDE (https://github.com/earlephilhower/arduino-pico)
-* SI5351 Library by Jason Mildrum (NT7S) - https://github.com/etherkit/Si5351Arduino
-* Arduino "Wire.h" I2C library(built-into arduino ide)
-* Arduino "EEPROM.h" EEPROM Library(built-into arduino ide)
-
-Code excerpts gathered from manyfold sources to recognize here, large pieces of code were extracted from former projects
-
-* [PixiePi](https://github.com/lu7did/PixiePi).
-* [Pixino](https://github.com/lu7did/Pixino).
-* [OrangeThunder](https://github.com/lu7did/OrangeThunder).
-
-## Code architecture
-
-The main functionality is quite similar to the baseline ADX firmware used, there are three changes needed to adapt the firmware to the rp2040
-architecture.
-
-
-* **I/O**.
- A mapping between the Arduino I/O pin and the rp2040 GPIO ports has been made, symbolic names were adjusted and coding macros used to replace
-the primitives to operate it. Proper initialization was initroduces for all ports used.
-
-
-* **EEPROM**.
-The rp2040 based Raspberry Pi Pico board used to host the porting doesn't have EEPROM available, however the arduino core is able to emulate it
-on flash memory, however additional definitions to initialize and commit values is needed and thus included in the ported code.
-
-
-
-
-
-* **Tone frequency counting**.
-The rp2040 processor lacks the zero cross comparator interrupt used by the ADX transceiver and thus it has been replaced using a firmware
-definition on one of the PIO of the processor (RISC processor).
-
-The code port was made starting with the [ADX_UnO_V1.3](https://github.com/WB2CBA/ADX-UnO-V1.3) as available at the GitHub site by Nov,15th 2022,
-no automatic synchronization mechanism has been established with it. The overall logic cycle of the firmware can be seen in the following figure.
-
-
-| ![Alt Text](ADX-rp2040_activity.png "ADX-rp2040 Activity") |
-|:--:| 
-| *PixiePico Acitivity diagram tone frequency counting algorithm* |
-
-The main functionality is contained in the file ADX_rp2040.ino which is compiled by using the Arduino IDE supplied with the stated
-libraries, different subsystems are made dependent on configuration directives (#define on the microcode, typically to signal the
-introduction of a porting segment by means of the #define RP2040 directive) which mades the relevant code segments  to be included
-or excluded from the build process.
-
-
-
-
-## Transmission Algorithms
-
-The ADX transceiver by Barb (WB2CBA) owes in part it's popularity to it's simplicity, and no small part of it derives from the very simple, yet effective, way
-to process incoming audio signals to derive what is the tone being sent by the host program and direct the transmitter to operate at a base
-frequency plus that tone frequency in order to achieve direct synthesis USB transmission with a very low overhead mechanism which involves little or no
-DSP programming which can be very taxing for the original Arduino board the transceiver has been designed with.
-The algorithm comes actually from Burkhard Kainka (DK7JD) [link](http://elektronik-labor.de/HF/SDRtxFSK2.html) cleverly uses the COMPA timer of the
-ATMEGA328p processor architecture into a very effective frequency meassurement with very little overhead, hardly can be considered a DSP processing, then
-the information of the frequencies is applied to the frequency output to achieve the digital modulation desired. This can be made because this is a digital
-transceiver and it's assumed it's used to transmit some form of a weak signal mode such as WSPR, JS8, FT4 or FT8, it can be used for CW and in general with
-some limitations for any mode where the amplitude carries no information.
-Unfortunately the rp2040 doesn't have such a good resource, so the frequency needs to be measured using other strategy, this in turns become a great source
-of experimentation.
-
-
-A PIO processor (16 of them available with the rp2040 architecture) is configured to generate an interrupt with the rising flank of the signal, a high
-resolution timer (capable of +/- 1 uSec resolution) is used to compute how many ticks can be counted between two sucessive flanks. There is actually no
-"zero crossing" detection as the GPIO isn't capable to trigger interruptions with that condition, but it's triggered when the signal level achieves the
-ON condition of the input pin. It's assumed the trigger level is the same for all cycles at it is not a signal subject to fading, therefore the frequency
-can be counted by measuring the time elapsed between similar parts of sucessive cycles.
-In order for the algorithm to work a signal conditioning needs to be performed by means of external hardware, this can be made either thru a MOSFET or an IC comparato$
-circuit (see hardware for details).
-The actual measurement accuracy is in the order of +/- 2 Hz in the worst case, which is accurate enough for digital modes.
-
-
-```
-
-Sources of error
-
-The counting has +/- 2 Hz error as the start and end of the counting window might include or exclude the starting and ending cycles. Also
-the trigger point might suffers some variations making the actual timing between sucessive cycles inaccurate. Finally the SNR of the signal
-might present noises which trigger false counts.
-
-```
-
-
-## Code components
-
-```
-mandatory files
- 
-ADX_rp2040.ino
-
-PIO programming (counting method)
-
-freqPIO.cpp
-freqPIO.pio
-freqPIO.pio.h
-
-
-```
 
 # Custom control board
+
+
+Work in process
 
 
 # Si5351 Clock generator (DDS)
@@ -561,7 +446,7 @@ freqPIO.pio.h
 
 # Hardware
 
-The following is the overall schematic for the project hardware
+The following is the overall hardware schematic for the project
 
 
 | ![Alt Text](PixiePico_Schematic.png?raw=true "Pixie Pico Schematic") |
@@ -726,3 +611,54 @@ GPIO12 line as the PTT, some programs might require this line to be activated or
 
 [TOC Generator](https://luciopaiva.com/markdown-toc/)
 jupyter nbconvert PixiePico.ipynb --to markdown
+
+# Table of contents
+
+- [PixiePico](#pixiepico)
+- [Introduction](#introduction)
+  - [Previous work](#previous-work)
+    - [Disclaimer](#disclaimer)
+    - [Fair and educated warning](#fair-and-educated-warning)
+- [System design](#system-design)
+  - [Pixie 7 MHz CW Transceiver kit](#pixie-7-mhz-cw-transceiver-kit)
+  - [Pixie transceiver kit](#pixie-transceiver-kit)
+  - [Pixie kit building](#pixie-kit-building)
+  - [Components not used](#components-not-used)
+  - [Kit modifications](#kit-modifications)
+  - [Circuit modifications](#circuit-modifications)
+    - [Modified final low pass filter](#modified-final-low-pass-filter)
+    - [Modified audio filter](#modified-audio-filter)
+    - [Audio limiter](#audio-limiter)
+    - [Improved PA heat management](#improved-pa-heat-management)
+    - [Broadcast Interference (BCI) reduction](#broadcast-interference-bci-reduction)
+    - [Increase power and other features](#increase-power-and-other-features)
+  - [Other alternatives](#other-alternatives)
+      - [Standard SSB transceiver](#standard-ssb-transceiver)
+      - [NOT really in the same level than](#not-really-in-the-same-level-than)
+- [Main processor (ARM rp2040 board)](#main-processor-arm-rp2040-board)
+  - [rp2040 datasheet](#rp2040-datasheet)
+  - [rp2040 pinout](#rp2040-pinout)
+- [Firmware](#firmware)
+  - [Package pre-requisites](#package-pre-requisites)
+  - [Build chain](#build-chain)
+  - [Code architecture](#code-architecture)
+  - [Transmission Algorithms](#transmission-algorithms)
+  - [Code components](#code-components)
+- [Custom control board](#custom-control-board)
+- [Si5351 Clock generator (DDS)](#si5351-clock-generator-dds)
+- [Hardware](#hardware)
+  - [Prototype (Under construction)](#prototype-under-construction)
+- [Case 3D Design (under construction)](#case-3d-design-under-construction)
+- [Release notes:](#release-notes)
+- [Operation (OTA)](#operation-ota)
+  - [Headless operation (all controls thru CAT)](#headless-operation-all-controls-thru-cat)
+  - [WSPR](#wspr)
+    - [Monitoring station](#monitoring-station)
+    - [Beacon station](#beacon-station)
+  - [Operating FT8](#operating-ft8)
+    - [Monitoring station](#monitoring-station)
+    - [Beacon station](#beacon-station)
+- [CAT Control](#cat-control)
+  - [FLRig](#flrig)
+  - [RigCtl](#rigctl)
+- [Other packages](#other-packages)
