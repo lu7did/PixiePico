@@ -2141,6 +2141,10 @@
     (uuid fd38362e-81cf-4d34-99b4-0a5b9383c456)
   )
 
+  (text "AUDIO" (at 67.31 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid 1ee1c81b-81a5-447b-853a-d8e8b18b3f83)
+  )
   (text "FAN" (at 101.6 81.28 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 1fd2d022-3fc6-44ad-be0c-cf97000207f4)
@@ -2160,6 +2164,10 @@
   (text "CAL" (at 87.63 97.79 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid cf70048f-f2c4-4e0d-a6c9-c751d001ab9a)
+  )
+  (text "+5V" (at 68.58 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid e87ab115-5b4d-4647-9f60-3478fbec6b47)
   )
 
   (symbol (lib_id "Device:C") (at 73.66 109.22 90) (unit 1)
