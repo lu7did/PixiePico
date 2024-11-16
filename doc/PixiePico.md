@@ -204,11 +204,10 @@ However, this project will start with a commercially available kit which can be 
 
 ## Pixie kit building
 
-The kit needs to be build using the instructions provided by the kit manufacturer, however a 7 MHz CW transceiver 
-isn't the goal of the project but a 28 MHz FT8 one. Therefore, several mods are needed departing from the basic
+The kit needs to be build using the instructions provided by the kit manufacturer, however a 7 MHz CW transceiver isn't the goal of the project but a 28 MHz FT8 one. Therefore, several mods are needed departing from the basic
 kit building. A typical circuit for the kit might be:
 
-| ![Alt Text](PixiePi_Schematics.jpg?raw=true "Pixie Kit Schematics") |
+| <img src="PixiePi_Schematics.jpg" alt="Pixie kit schematics" style="width:640px;height:auto;">
 |:--:| 
 | *Typical Pixie kit schematic* |
 
@@ -220,7 +219,7 @@ This circuit is actually used as a starting point, but some modifications are ne
 * Modify the operating frequency from 7 MHz to 28 MHz.
 * Integrate with CPU & command board.
 
-Some minor modifications are needed while building the Chinese DIY Pixie kit, other versions might vary.
+The modifications to be evaluated  are needed while building the Chinese DIY Pixie kit, other versions might vary.
 
 ## Components not used
 
@@ -236,44 +235,36 @@ The following components typically present in the most common chinese kits needs
 
 ```
 
-## Kit modifications
+### Operating frequency changes 
 
-In order to adapt the kit to perform as the RF modem of this project the following modifications are needed
+An **LTSpice simulation** is performed using the following circuit representing the Pixie transceiver in *transmit* mode at the original 7 MHz frequency.
 
-```
-* Connect Cx=100 nF on the same place than Y1 on the kit.
-* Connect hole of negative side of D3 diode to the interface board PTT line
-* The KEY Cut trace from R5 to KEY socket, connect both keyer legs to KEY line of the control board.
-* Assure all four boards (interface, Pixie, Raspberry Pico and Si5351) share a common ground.
-* Extract +9V from the Pixie +9V socket, feed the control board's LM7805 with it, then feed the Raspberry Pico board with it.
-```
-| ![Alt Text](pixie_pcb.jpg?raw=true "Pixie kit PCB mods") |
-|:--:| 
-| *Pixie kit PCB mods* |
+<img src="LTSpice_PixiePico_7MHz_Design.png" alt="Pixie operating at 7 MHz" style="width:480px;height:auto;">
 
 
-All additional interface circuitry might be constructed on a prototype perfboard or using the Manhattan
-technique.
+The main signals ($V_{gen}$ o $V_{xtal}$, $V_{e1}$, $V_{cq2}$  and $V_{ant}$) are
 
-Also, if during the build and test process the transistors of the kit results damaged they can be
-replaced by common NPN low signal transistors such as:
+<img src="PixiePico_LTSpice_Signals_7MHz.png" alt="Main signals of the Pixie operating at 7 MHz" style="width:480px;height:auto;">
 
-* Replace Q1 9018 custom OEM part by a 2N3904 transistor (in need of replacement)
-* Replace Q2 8050 custom OEM part by a 2N3904 transistor (in need of replacement).
+
+Which seems to be providing a reasonably clean signal to the antena ($V_{ant}$).
+
+However, running the circuit just changing the oscilator to 28 MHz yield
+
+<img src="PixiePico_LTSpice_SignalsB_28MHz.png" alt="Pixie operating at 28 MHz" style="width:480px;height:auto;">
+
+Which is indicates that some changes are needed, this is mainly produced by:
+
+*  bypass capacitances
+*  the final $\pi$ filter different design parameters
 
 
 
-## Circuit modifications
+## Modified frequency
 
-To transform the 7 MHz CW transceiver into a 28 MHz FT8 transceiver few modifications are needed to be implemented in the Pixie Kit.
+The capacitors $C_3$ and $C_7$ are removed (not populated) and the bypass capacitor $C_2$ is reduced.
 
-* Modified final low pass filter.
-* Modified audio filter.
-* Improved PA heat management.
-* Broadcast Interference (BCI) reduction.
-
-
-### Modified final low pass filter
+The $\pi$ low pass filter is recalculated to new values.
 
 The original circuit comes with a $\pi$ low pass filter and impedance matching that needs to be redesigned for
 
@@ -286,39 +277,110 @@ $P_{o}= \frac {V_{cc}^2}{2 \dot R_{L}} \approx 810 mW$
 
 Calculating the new values for $C_{1}$ , $C_{2}$ and $L_{1}$ the circuit is left as
 
-| ![Alt Text](PixiePico_LTSpice_PiFilter_Circuit.png?raw=true "PA BPF Pi circuit ") |
+| <img src="PixiePico_LTSpice_PiFilter_Circuit.png" alt="PA BPF Pi circuit " style="width:480px;height:auto;"> |
 |:--:| 
 | *LTSpice circuit PA Pi Filter* |
 
 
 The frequency response of the new Pi filter would be
 
-| ![Alt Text](PixiePico_LTSpice_PiFilter_Response.png?raw=true "Pi Filter Frequency Response") |
+| <img src="PixiePico_LTSpice_PiFilter_Response.png" alt="Pi Filter Frequency Response" style="width:480px;height:auto;"> |
 |:--:| 
 | *LTSpice simulation PA Pi filter frequency response* |
 
+The modified circuit would be
 
-The new Pixie circuit would be
+<img src="LTSpice_PixiePico_28MHz_Design.png" alt="Pixie operating at 28 MHz" style="width:480px;height:auto;">
 
-| ![Alt Text](PixiePico_LTSpice_TX_Circuit.png?raw=true "Pixie transmitter modified circuit") |
+Main signals operating at 28 MHz would be
+
+<img src="PixiePico_LTSpice_Signals_28MHz.png" alt="Main signals at 28 MHz" style="width:480px;height:auto;">
+
+The output spectrum over the antenna impedance $R_L$ would be
+
+<img src="LTSpice_PixiePico_TX_28MHz_FFT.png" alt="Pixie spectrum operating  at 28 MHz" style="width:480px;height:auto;">
+
+
+
+
+
+
+```python
+def C2X(f,C):
+    import math
+    X=2*math.pi*f*C
+    XC=1/X
+    return XC
+```
+
+
+```python
+def X2C(f,X):
+    import math
+    C=1/(2*math.pi*f*X)
+    return C
+```
+
+
+```python
+C1=100E-12
+f1=7000000
+XC1=C2X(f1,C1)
+print("At f=%0.2f C=%0.2f XC=%0.12f" % (f,C,XC1))
+
+f2=28000000
+XC2=XC1
+C2=X2C(f2,XC2)
+print("At f=%0.2f XC=%0.2f is C=%0.12f" % (f2,XC2,C2))
+
+XCX=C2X(f2,C2)
+print("At f=%0.2f C=%0.12f XC=%0.12f" % (f2,C2,XCX))
+
+```
+
+    At f=7000000.00 C=0.00 XC=227.364204416993
+    At f=28000000.00 XC=227.36 is C=0.000000000025
+    At f=28000000.00 C=0.000000000025 XC=227.364204416993
+
+
+## Kit modifications
+
+In order to adapt the kit to perform as the RF modem of this project the following modifications are needed
+
+* $L_{2}$, $C_{5}$ and $C_{6}$ needs to be adjusted as per the values for 28MHz (modified final LPF).
+* *Do not* populate $C_3$ and $C_7$.
+* Connect Cx=100 nF (you can reuse $C_{8}$ from the kit) on the same place than $Y_{1}$ on the kit.
+* Connect either to the tip connector of KEY or the hole of negative side of D3 diode to the interface board PTT line
+* Connect the tip of the PHONE connector to the Audio line of the rp2040 Z.
+* Assure all four boards (interface, Pixie, rp2040 Zero and Si5351) share a common ground.
+* Extract +9V from the Pixie +9V socket, feed the control board's LM7805 with it, then feed the rp2040 zero board with it.
+
+| <img src="pixie_pcb.jpg" alt="Pixie kit PCB mods" style="width:480px;height:auto;"> |
 |:--:| 
-| *LTSpice Pixie transceiver modified output* |
+| *Pixie kit PCB mods* |
 
 
-The main values of signal in the circuit will be
+The capacitor C8 (100nF) must be placed in the pins for the Y1 Crystal (not used). All marks in **red** are kit components not populated, whereas connections marked in **blue** are the signal points that needs to be interfaced from the kit board to other places of the 
+circuitry.
 
-| ![Alt Text](PixiePico_LTSpice_TX_SignalAnalysis.png?raw=true "Pixie transmitter signal analysis") |
-|:--:| 
-| *LTSpice simulation Pixie signal analysis* |
+All additional interface circuitry might be constructed on a prototype perfboard or using the Manhattan
+technique.
 
-The frequency response by design would be
+Also, if during the build and test process the transistors of the kit results damaged they can be
+replaced by common NPN low signal transistors such as:
 
-| ![Alt Text](PixiePico_LTSpice_TX_FFT.png?raw=true "Pixie transmitter harmonics") |
-|:--:| 
-| *LTSpice simulation transmitter harmonics* |
+* Replace Q1 9018 custom OEM part by a 2N3904 transistor (in need of replacement)
+* Replace Q2 8050 custom OEM part by a 2N3904 transistor (in need of replacement).
 
 
-The first harmonic is -20 dB below fundamental, a little bit higher than expected, it needs to be worked out to at least -30 dB, the remaining harmonics are quite adequate.
+
+## Additional circuit modifications
+
+To transform the 7 MHz CW transceiver into a 28 MHz FT8 transceiver few modifications are needed to be implemented in the Pixie Kit.
+
+* Modified audio filter.
+* Improved PA heat management.
+* Broadcast Interference (BCI) reduction.
 
 
 ### Improved PA heat management
@@ -401,19 +463,19 @@ The full spec of the CPU to be used can be found at [rp2040 Datasheet](https://d
 
 ## rp2040 pinout
 
-| ![Alt Text](rp2040-pinout.webp?raw=true "rp2040 Zero pinout Diagram") |
+| <img src="rp2040-pinout.webp" alt="rp2040 Zero pinout Diagram" style="width:480px;height:auto;"> |
 |:--:| 
 | *rp2040 Zero pinout* |
 
 
-| ![Alt Text](rp2040Z.jpeg?raw=true "rp2040 Zero pinout Diagram") |
+| <img src="rp2040Z.jpeg" alt="rp2040 Zero pinout Diagram" style="width:480px;height:auto;"> |
 |:--:| 
 | *rp2040 Zero pinout* |
 
 
 Each GPIO line has several functions which can be seen in the diagram of the larger pinout
 
-| ![Alt Text](pico-pinout.svg?raw=true "Raspberry pico pinout (larger)") |
+| <img src="pico-pinout.svg" alt="rp2040 Zero pinout Diagram" style="width:480px;height:auto;"> |
 |:--:| 
 | *rp2040 block diagram* |
 
@@ -614,51 +676,11 @@ jupyter nbconvert PixiePico.ipynb --to markdown
 
 # Table of contents
 
-- [PixiePico](#pixiepico)
-- [Introduction](#introduction)
-  - [Previous work](#previous-work)
-    - [Disclaimer](#disclaimer)
-    - [Fair and educated warning](#fair-and-educated-warning)
-- [System design](#system-design)
-  - [Pixie 7 MHz CW Transceiver kit](#pixie-7-mhz-cw-transceiver-kit)
-  - [Pixie transceiver kit](#pixie-transceiver-kit)
-  - [Pixie kit building](#pixie-kit-building)
-  - [Components not used](#components-not-used)
-  - [Kit modifications](#kit-modifications)
-  - [Circuit modifications](#circuit-modifications)
-    - [Modified final low pass filter](#modified-final-low-pass-filter)
-    - [Modified audio filter](#modified-audio-filter)
-    - [Audio limiter](#audio-limiter)
-    - [Improved PA heat management](#improved-pa-heat-management)
-    - [Broadcast Interference (BCI) reduction](#broadcast-interference-bci-reduction)
-    - [Increase power and other features](#increase-power-and-other-features)
-  - [Other alternatives](#other-alternatives)
-      - [Standard SSB transceiver](#standard-ssb-transceiver)
-      - [NOT really in the same level than](#not-really-in-the-same-level-than)
-- [Main processor (ARM rp2040 board)](#main-processor-arm-rp2040-board)
-  - [rp2040 datasheet](#rp2040-datasheet)
-  - [rp2040 pinout](#rp2040-pinout)
-- [Firmware](#firmware)
-  - [Package pre-requisites](#package-pre-requisites)
-  - [Build chain](#build-chain)
-  - [Code architecture](#code-architecture)
-  - [Transmission Algorithms](#transmission-algorithms)
-  - [Code components](#code-components)
-- [Custom control board](#custom-control-board)
-- [Si5351 Clock generator (DDS)](#si5351-clock-generator-dds)
-- [Hardware](#hardware)
-  - [Prototype (Under construction)](#prototype-under-construction)
-- [Case 3D Design (under construction)](#case-3d-design-under-construction)
-- [Release notes:](#release-notes)
-- [Operation (OTA)](#operation-ota)
-  - [Headless operation (all controls thru CAT)](#headless-operation-all-controls-thru-cat)
-  - [WSPR](#wspr)
-    - [Monitoring station](#monitoring-station)
-    - [Beacon station](#beacon-station)
-  - [Operating FT8](#operating-ft8)
-    - [Monitoring station](#monitoring-station)
-    - [Beacon station](#beacon-station)
-- [CAT Control](#cat-control)
-  - [FLRig](#flrig)
-  - [RigCtl](#rigctl)
-- [Other packages](#other-packages)
+<!-- toc -->
+
+
+
+<!-- tocstop -->
+
+
+
