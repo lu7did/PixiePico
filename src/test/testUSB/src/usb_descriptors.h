@@ -1,0 +1,14 @@
+#ifndef _USB_DESCRIPTORS_H_
+#define _USB_DESCRIPTORS_H_
+
+#include "tusb.h"
+
+enum {
+  ITF_NUM_AUDIO_CONTROL = 0,
+  ITF_NUM_AUDIO_STREAMING_SPK,
+  ITF_NUM_AUDIO_STREAMING_MIC,
+  ITF_NUM_TOTAL
+};
+
+#endif
+

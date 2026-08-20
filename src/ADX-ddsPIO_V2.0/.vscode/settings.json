@@ -1,0 +1,7 @@
+{
+  "cmake.configureEnvironment": {
+    "CMAKE_ARGS": "",
+    "PICO_SDK_PATH": "/Users/PCOLLA/Documents/GitHub/pico/pico-sdk"
+  }
+}
+

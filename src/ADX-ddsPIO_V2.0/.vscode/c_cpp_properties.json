@@ -1,0 +1,13 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Pico RP2040",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "macos-clang-arm64"
+    }
+  ]
+}
+

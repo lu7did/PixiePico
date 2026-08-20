@@ -1,0 +1,11 @@
+{
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureEnvironment": {
+    "PICO_SDK_PATH": "/Users/PCOLLA/Documents/GitHub/pico/pico-sdk",
+    "PICO_SDK_HOME": "",
+    "CMAKE_ARGS": ""
+  },
+  "cmake.configureOnOpen": false,
+  "cmake.ctest.enabled": false
+}
+

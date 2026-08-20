@@ -1,0 +1,16 @@
+
+; * =======================================================================================
+; * quad
+; * (c) Dr. Pedro E. Colla (LU7DZ) <pedro.colla@gmail.com>
+; * 
+; * Digital quadrature oscillator, produces an I/Q signal in two consecutive pins
+; * I = pin_base, Q = pin_base+1
+; * Sequence: 00 -> 01 -> 11 -> 10 (90°)
+; * =======================================================================================*/
+.program quad
+.wrap_target
+    set pins, 0b00
+    set pins, 0b01
+    set pins, 0b11
+    set pins, 0b10
+.wrap
