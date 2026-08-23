@@ -36,7 +36,6 @@ International (CC BY-SA 4.0).
 #define ENCODER_DT_PIN 28
 #define ENCODER_SW_PIN 27
 #define ENCODER_FREQUENCY_STEP_HZ 10L
-#define LONGPUSH 2000000
 #define BLINK_INTERVAL_MS 500
 #define WS2812_FREQUENCY_HZ 800000.0f
 
@@ -44,10 +43,20 @@ International (CC BY-SA 4.0).
 #define PICO_DEFAULT_WS2812_PIN 16
 #endif
 
+#define LONGPUSH 2000000
+#define MAXMENU  4
+
 static ssd1306_t oled;
 static bool oled_available = false;
 static long current_frequency_hz = 28074000L;
+
+
 uint32_t timerSW = 0UL;
+
+bool menuMode=false;
+bool editMode=false;
+
+uint8_t menuItem=0;
 
 static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
     return ((uint32_t)green << 24) |
@@ -55,6 +64,12 @@ static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
            ((uint32_t)blue << 8);
 }
 
+void clearOLED() {
+    if (!oled_available) {
+        return;
+    }
+
+}
 static void set_led(PIO pio, uint state_machine,
                     uint8_t red, uint8_t green, uint8_t blue) {
     pio_sm_put_blocking(pio, state_machine, rgb_to_grb(red, green, blue));
@@ -237,7 +252,30 @@ void rotaryTurn(int direction) {
            direction, current_frequency_hz);
     fflush(stdout);
 }
+void displayMenu(int i) {
 
+    if (!oled_available) {
+        return;
+    }
+
+    char hi[16];
+    printf("Entering displayMenu(%d)\n",i);
+    clearOLED();
+    switch(i) {
+        case 0 : {snprintf(hi,sizeof(hi),"%d - Band",i);break;}
+        case 1 : {snprintf(hi,sizeof(hi),"%d - Mode",i);break;}
+        case 2 : {snprintf(hi,sizeof(hi),"%d - VFO",i);break;}
+        case 3 : {snprintf(hi,sizeof(hi),"%d - Shift",i);break;}
+        case 4 : {snprintf(hi,sizeof(hi),"%d - Step",i);break;}
+        case 5 : {snprintf(hi,sizeof(hi),"%d - Watch",i);break;}
+    } 
+
+    fill_rectangle(&oled, 0, 0, 128, 32, true);
+    ssd1306_draw_text_color(&oled, 1, 1, hi, 1, false);
+    refresh_oled();
+
+
+}
 void SWclick(bool pressed) {
     displayTX(pressed);
     if(pressed) {
@@ -246,6 +284,14 @@ void SWclick(bool pressed) {
       uint32_t lapSW=time_us_32()-timerSW;
       if (lapSW>LONGPUSH) {
         printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
+        menuMode=!menuMode;
+        editMode=false;
+        if (!menuMode) {
+           displayFreq(current_frequency_hz);            
+        } else {
+           printf("Menu activated item %d\n",menuItem);
+           displayMenu(menuItem);
+        }
       } else {
         printf("Lap: %" PRIu32 " <shortPUSH>\n", lapSW);
       }  
@@ -306,15 +352,25 @@ int main(void) {
 
     while (true) {
         int steps = rotary_encoder_take_steps();
-        while (steps > 0) {
-            rotaryTurn(+1);
-            --steps;
+        if (steps != 0) {
+        
+           if (!menuMode) {
+              while (steps > 0) {
+                  rotaryTurn(+1);
+                  --steps;
+              }
+              while (steps < 0) {
+                  rotaryTurn(-1);
+                  ++steps;
+              }
+           } else {
+              menuItem=menuItem+steps;
+              if (menuItem>MAXMENU) {
+                  menuItem=0;
+              }
+              displayMenu(menuItem);
+           }
         }
-        while (steps < 0) {
-            rotaryTurn(-1);
-            ++steps;
-        }
-
         bool switch_pressed;
         if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
             SWclick(switch_pressed);
@@ -336,8 +392,9 @@ int main(void) {
                 set_led(pio, state_machine, 0, 0, 0);
                 //printf("Ciclo %lu: LED apagado\r\n", cycle);
             }
-
-            displayLED(led_level);
+            if (!menuMode) {
+               displayLED(led_level);
+            }
             fflush(stdout);
         }
 
