@@ -2,7 +2,7 @@
 Project PixiePico
 
 Pixie based digital transceiver firmware
-Test firmware, basic OLED support and HW test
+Test firmware, basic GUI workbench and verification
 
 Copyright Dr. Pedro E. Colla LU7DZ (2026)
 For non-profit uses only
@@ -21,8 +21,10 @@ International (CC BY-SA 4.0).
 #include "hardware/pio.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
+#include "rotary_encoder.h"
 #include "ssd1306.h"
 #include "ws2812.pio.h"
+#include <inttypes.h>
 
 #define OLED_I2C i2c0
 #define OLED_SDA_PIN 0
@@ -30,6 +32,11 @@ International (CC BY-SA 4.0).
 #define OLED_I2C_ADDRESS 0x3C
 #define OLED_I2C_FREQUENCY_HZ 400000
 
+#define ENCODER_CLK_PIN 29
+#define ENCODER_DT_PIN 28
+#define ENCODER_SW_PIN 27
+#define ENCODER_FREQUENCY_STEP_HZ 10L
+#define LONGPUSH 2000000
 #define BLINK_INTERVAL_MS 500
 #define WS2812_FREQUENCY_HZ 800000.0f
 
@@ -39,6 +46,8 @@ International (CC BY-SA 4.0).
 
 static ssd1306_t oled;
 static bool oled_available = false;
+static long current_frequency_hz = 28074000L;
+uint32_t timerSW = 0UL;
 
 static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
     return ((uint32_t)green << 24) |
@@ -214,6 +223,37 @@ void displayFreq(long frequency_hz) {
     refresh_oled();
 }
 
+void rotaryTurn(int direction) {
+    if (direction != 1 && direction != -1) {
+        return;
+    }
+
+    current_frequency_hz += direction * ENCODER_FREQUENCY_STEP_HZ;
+    if (current_frequency_hz < 0) {
+        current_frequency_hz = 0;
+    }
+    displayFreq(current_frequency_hz);
+    printf("Encoder: %+d; frecuencia: %ld Hz\r\n",
+           direction, current_frequency_hz);
+    fflush(stdout);
+}
+
+void SWclick(bool pressed) {
+    displayTX(pressed);
+    if(pressed) {
+      timerSW = time_us_32();
+    } else {
+      uint32_t lapSW=time_us_32()-timerSW;
+      if (lapSW>LONGPUSH) {
+        printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
+      } else {
+        printf("Lap: %" PRIu32 " <shortPUSH>\n", lapSW);
+      }  
+    }
+    printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
+    fflush(stdout);
+}
+
 int main(void) {
     stdio_init_all();
 
@@ -230,6 +270,10 @@ int main(void) {
     gpio_pull_up(OLED_SDA_PIN);
     gpio_pull_up(OLED_SCL_PIN);
 
+    rotary_encoder_t encoder;
+    rotary_encoder_init(&encoder,
+                        ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
+
     oled_available = ssd1306_init(&oled, OLED_I2C, OLED_I2C_ADDRESS);
 
     if (oled_available) {
@@ -237,58 +281,66 @@ int main(void) {
         (void)ssd1306_show(&oled);
         displayMode("FT8");
         displayVFO("VFOa");
-        displayTX(false);
+        displayTX(true);
         displayLED(0);
-        displayFreq(7074000L);
+        displayFreq(current_frequency_hz);
     }
 
     wait_for_usb_monitor();
 
-    printf("testOLED iniciado en Waveshare RP2040-Zero\r\n");
+    printf("testGUI iniciado en Waveshare RP2040-Zero\r\n");
     printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
     printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
     printf("OLED %s; pantalla FT8/VFOA/TX, frecuencia 28074.00\r\n",
            oled_available ? "detectado" : "NO detectado");
+    printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
+           ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
     fflush(stdout);
 
     bool is_on = false;
     unsigned long cycle = 0;
     unsigned led_level = 0;
+    absolute_time_t next_blink =
+        delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
 
     while (true) {
-        is_on = !is_on;
-        ++cycle;
-        ++led_level;
-        if (led_level > 5) {
-            led_level = 0;
+        int steps = rotary_encoder_take_steps();
+        while (steps > 0) {
+            rotaryTurn(+1);
+            --steps;
+        }
+        while (steps < 0) {
+            rotaryTurn(-1);
+            ++steps;
         }
 
-        if (is_on) {
-            set_led(pio, state_machine, 0, 24, 0);
-            
-            printf("Ciclo %lu: LED encendido\r\n", cycle);
-        } else {
-            set_led(pio, state_machine, 0, 0, 0);
-            displayTX(false);
-            printf("Ciclo %lu: LED apagado\r\n", cycle);
+        bool switch_pressed;
+        if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
+            SWclick(switch_pressed);
         }
 
-        displayLED(led_level);
+        if (time_reached(next_blink)) {
+            next_blink = delayed_by_ms(next_blink, BLINK_INTERVAL_MS);
+            is_on = !is_on;
+            ++cycle;
+            ++led_level;
+            if (led_level > 5) {
+                led_level = 0;
+            }
 
-        switch(cycle) {
-           case 0 : {displayTX(true);break;}
-           case 1 : {displayMode("FT8");break;}
-           case 2 : {displayVFO("VFOa");break;}
-           case 3 : {displayFreq(7044000L);break;}
-           case 4 : {displayFreq(14074000L);displayTX(true);break;}
-           case 5 : {displayFreq(28074000L);break;}
-           case 6 : {displayFreq(7044000L);break;}
-           case 7 : {displayTX(false);break;}
-           case 8 : {displayMode("CW");break;}
-           case 9 : {displayVFO("VFOb");cycle=0;break;}
+            if (is_on) {
+                set_led(pio, state_machine, 0, 24, 0);
+                //printf("Ciclo %lu: LED encendido\r\n", cycle);
+            } else {
+                set_led(pio, state_machine, 0, 0, 0);
+                //printf("Ciclo %lu: LED apagado\r\n", cycle);
+            }
+
+            displayLED(led_level);
+            fflush(stdout);
         }
-        fflush(stdout);
-        sleep_ms(BLINK_INTERVAL_MS);
+
+        sleep_ms(1);
     }
 }
