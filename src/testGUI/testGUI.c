@@ -44,7 +44,7 @@ International (CC BY-SA 4.0).
 #endif
 
 #define LONGPUSH 2000000
-#define MAXMENU  4
+#define MAXMENU  5
 
 static ssd1306_t oled;
 static bool oled_available = false;
@@ -55,8 +55,18 @@ uint32_t timerSW = 0UL;
 
 bool menuMode=false;
 bool editMode=false;
-
 uint8_t menuItem=0;
+
+uint8_t  iBand=0;
+uint8_t  iMode=0;
+uint8_t  iVfo=0;
+uint16_t iShift=0;
+uint16_t iStep=0;
+uint8_t  iLED=0;
+bool     iTX=false;
+bool     iWatch=false;
+
+
 
 static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
     return ((uint32_t)green << 24) |
@@ -111,31 +121,44 @@ static void refresh_oled(void) {
     }
 }
 
-void displayMode(const char *mode) {
+void displayMode(uint8_t m) {
     if (!oled_available) {
         return;
     }
 
-    char visible_mode[4];
-    snprintf(visible_mode, sizeof(visible_mode), "%.3s",
-             mode != NULL ? mode : "");
+    char mode[4];
+    switch(m) {
+        case 0 : {sprintf(mode,"FT8");break;}
+        case 1 : {sprintf(mode,"JS8");break;}
+        case 2 : {sprintf(mode,"WSPR");break;}
+        case 3 : {sprintf(mode,"FT4");break;}
+        case 4 : {sprintf(mode,"CW");break;}
+    }
+//    snprintf(visible_m
+//        ode, sizeof(visible_mode), "%.3s",
+//             mode != NULL ? mode : "");
 
     fill_rectangle(&oled, 0, 0, 20, 9, false);
-    ssd1306_draw_text(&oled, 0, 1, visible_mode, 1);
+    ssd1306_draw_text(&oled, 0, 1, mode, 1);
     refresh_oled();
 }
 
-void displayVFO(const char *vfo) {
+void displayVFO(uint8_t v) {
     if (!oled_available) {
         return;
     }
-
-    char visible_vfo[5];
-    snprintf(visible_vfo, sizeof(visible_vfo), "%.4s",
-             vfo != NULL ? vfo : "");
+    
+    char vfo[5];
+    switch(v) {
+        case 0  : {sprintf(vfo,"VFOA");break;}
+        case 1  : {sprintf(vfo,"VFOB");break;}
+        default : {sprintf(vfo,"VFO*");break;}
+    }
+    //snprintf(visible_vfo, sizeof(visible_vfo), "%.4s",
+    //         v != NULL ? vfo : "");
 
     fill_rectangle(&oled, 22, 0, 27, 9, false);
-    ssd1306_draw_text(&oled, 22, 1, visible_vfo, 1);
+    ssd1306_draw_text(&oled, 22, 1, vfo, 1);
     refresh_oled();
 }
 
@@ -252,52 +275,252 @@ void rotaryTurn(int direction) {
            direction, current_frequency_hz);
     fflush(stdout);
 }
-void displayMenu(int i) {
+void displayPanel() {
+
+    displayMode(iMode);
+    displayVFO(iVfo);
+    displayTX(iTX);
+    displayLED(iLED);
+    displayFreq(current_frequency_hz);
+
+}
+void showMenu(uint8_t i) {
+    char hi[16];
+    clearOLED();
+   
+    if (!editMode){
+       switch(i) {
+           case 0 : {snprintf(hi,sizeof(hi),"%d-Band",i);break;}
+           case 1 : {snprintf(hi,sizeof(hi),"%d-Mode",i);break;}
+           case 2 : {snprintf(hi,sizeof(hi),"%d-VFO",i);break;}
+           case 3 : {snprintf(hi,sizeof(hi),"%d-Shift",i);break;}
+           case 4 : {snprintf(hi,sizeof(hi),"%d-Step",i);break;}
+           case 5 : {snprintf(hi,sizeof(hi),"%d-Watch",i);break;}
+        } 
+    }
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+}
+void showBand() {
+    char hi[16];
+    clearOLED();
+    sprintf(hi,"01-Band");
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iBand) {
+       case 0   : {sprintf(hi,"10m");break;}
+       case 1   : {sprintf(hi,"20m");break;}
+       case 2   : {sprintf(hi,"40m");break;}
+    }
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+void showMode() {
+
+    char hi[16];
+    clearOLED();
+    sprintf(hi,"02-Mode");
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iMode) {
+       case 0   : {sprintf(hi,"FT8");break;}
+       case 1   : {sprintf(hi,"JS8");break;}
+       case 2   : {sprintf(hi,"WSPR");break;}
+       case 3   : {sprintf(hi,"FT4");break;}
+       case 4   : {sprintf(hi,"CW");break;}
+    }
+
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+void showVFO() {
+
+    char hi[16];
+    clearOLED();
+    sprintf(hi,"03-VFO");
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iVfo) {
+       case 0   : {sprintf(hi,"VFOA");break;}
+       case 1   : {sprintf(hi,"VFOB");break;}
+    }
+
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+void showShift() {
+    char hi[16];
+    clearOLED();
+    sprintf(hi,"03-Shift");
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iShift) {
+       case 0   : {sprintf(hi,"600");break;}
+       case 1   : {sprintf(hi,"700");break;}
+       case 2   : {sprintf(hi,"800");break;}
+    }
+
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+void showStep() {
+    char hi[16];
+    clearOLED();
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+
+    sprintf(hi,"04-Step");
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iStep) {
+       case 0   : {sprintf(hi,"10");break;}
+       case 1   : {sprintf(hi,"100");break;}
+       case 2   : {sprintf(hi,"1000");break;}
+    }
+
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+void showWatch() {
+    char hi[16];
+    clearOLED();
+    fill_rectangle(&oled, 22, 0, 27, 9, false);
+    fill_rectangle(&oled, 0, 0, 128, 32, false);
+
+    sprintf(hi,"05-Watch");
+    ssd1306_draw_text(&oled, 1, 1, hi, 1);
+    refresh_oled();
+
+    switch(iWatch) {
+       case 0   : {sprintf(hi,"Off");break;}
+       case 1   : {sprintf(hi,"Off");break;}
+    }
+
+    ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
+    refresh_oled();
+
+}
+
+void showEdit(uint8_t i) {
+
+    switch(i) {
+        case 0 : {showBand();break;}
+        case 1 : {showMode();break;}
+        case 2 : {showVFO();break;}
+        case 3 : {showShift();break;}
+        case 4 : {showStep();break;}
+        case 5 : {showWatch();break;}
+    }
+}
+void displayMenu(uint8_t i) {
 
     if (!oled_available) {
         return;
     }
 
-    char hi[16];
-    printf("Entering displayMenu(%d)\n",i);
-    clearOLED();
-    switch(i) {
-        case 0 : {snprintf(hi,sizeof(hi),"%d - Band",i);break;}
-        case 1 : {snprintf(hi,sizeof(hi),"%d - Mode",i);break;}
-        case 2 : {snprintf(hi,sizeof(hi),"%d - VFO",i);break;}
-        case 3 : {snprintf(hi,sizeof(hi),"%d - Shift",i);break;}
-        case 4 : {snprintf(hi,sizeof(hi),"%d - Step",i);break;}
-        case 5 : {snprintf(hi,sizeof(hi),"%d - Watch",i);break;}
-    } 
+    if (!menuMode) {
+        return;
+    }
 
-    fill_rectangle(&oled, 0, 0, 128, 32, true);
-    ssd1306_draw_text_color(&oled, 1, 1, hi, 1, false);
-    refresh_oled();
-
+    if (!editMode) {
+        showMenu(menuItem);
+        return;
+    }
+    showEdit(menuItem);
 
 }
+void updateMenu(uint8_t m,uint8_t s) {
+    switch(m) {
+        case 0 : {iBand=(iBand+s)%3;break;}
+        case 1 : {iMode=(iMode+s)%5;break;}
+        case 2 : {iVfo=(iVfo+s)%2;break;}
+        case 3 : {iShift=(iShift+s)%3;break;}
+        case 4 : {iStep=(iStep+s)%3;break;}
+        case 5 : {iWatch=(iWatch+s)%2;break;}
+    }
+    displayMenu(m);
+}
 void SWclick(bool pressed) {
-    displayTX(pressed);
+
+    printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
+    fflush(stdout);
+
     if(pressed) {
       timerSW = time_us_32();
     } else {
       uint32_t lapSW=time_us_32()-timerSW;
       if (lapSW>LONGPUSH) {
         printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
-        menuMode=!menuMode;
-        editMode=false;
-        if (!menuMode) {
-           displayFreq(current_frequency_hz);            
-        } else {
-           printf("Menu activated item %d\n",menuItem);
+        //menuMode=!menuMode;
+        //editMode=false;
+
+        if (!menuMode) {            //It is on main panel, so switch to Menu Mode
+           menuMode=true;
+           editMode=false;
            displayMenu(menuItem);
+           printf("Switch to Menu Mode\n");
+           fflush(stdout);
+           return;
         }
+
+        if (editMode) {             //It is on menu mode edit, switch back to main panel
+            menuMode=false;
+            editMode=false;
+            displayPanel();
+            printf("Switch to Panel Mode\n");
+            return;
+        }
+        editMode=true;
+        displayMenu(menuItem);
+        printf("Switch to Edit Mode\n");
+        fflush(stdout);
+
       } else {
         printf("Lap: %" PRIu32 " <shortPUSH>\n", lapSW);
+
+        if (!menuMode) {
+
+            return;   // Normal panel and press button ** DO NOTHING **
+        }
+
+        if (!editMode) {
+           menuMode=false;
+           editMode=false;
+           displayPanel();
+           printf("Switch back to Panel\n");
+           fflush(stdout);
+           return;
+        }
+        editMode=false;
+        displayMenu(menuItem);
+        printf("Switch back to Menu\n");
+        fflush(stdout);
+        return;
+
       }  
     }
-    printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
-    fflush(stdout);
 }
 
 int main(void) {
@@ -325,11 +548,7 @@ int main(void) {
     if (oled_available) {
         ssd1306_clear(&oled);
         (void)ssd1306_show(&oled);
-        displayMode("FT8");
-        displayVFO("VFOa");
-        displayTX(true);
-        displayLED(0);
-        displayFreq(current_frequency_hz);
+        displayPanel();
     }
 
     wait_for_usb_monitor();
@@ -364,11 +583,16 @@ int main(void) {
                   ++steps;
               }
            } else {
-              menuItem=menuItem+steps;
-              if (menuItem>MAXMENU) {
-                  menuItem=0;
+              if (!editMode) {
+                 menuItem=menuItem+steps;
+                 if (menuItem>MAXMENU) {
+                    menuItem=0;
+                 }
+                 displayMenu(menuItem);
+              } else {
+                 updateMenu(menuItem,steps);
+                 displayMenu(menuItem);
               }
-              displayMenu(menuItem);
            }
         }
         bool switch_pressed;
