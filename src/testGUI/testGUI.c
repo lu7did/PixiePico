@@ -50,23 +50,29 @@ static ssd1306_t oled;
 static bool oled_available = false;
 static long current_frequency_hz = 28074000L;
 
-
 uint32_t timerSW = 0UL;
 
 bool menuMode=false;
 bool editMode=false;
 uint8_t menuItem=0;
 
-uint8_t  iBand=0;
-uint8_t  iMode=0;
-uint8_t  iVfo=0;
-uint16_t iShift=0;
-uint16_t iStep=0;
+uint8_t  iBand=0;   //Default band is 40m
+uint8_t  iMode=3;   //Default mode is FT8
+uint8_t  iVfo=0;    //Default VFO is A
+uint16_t iShift=0;  //Default Shift is 600 Hz
+uint16_t iStep=0;   //Default Step is 10 Hz
 uint8_t  iLED=0;
 bool     iTX=false;
 bool     iWatch=false;
 
+uint32_t fStep=ENCODER_FREQUENCY_STEP_HZ;
 
+#define NBANDS 3
+#define NMODES 5
+long unsigned int Bands[NBANDS][NMODES] = {
+              { 7038600, 7078000, 7047500, 7074000,7030000},
+              {14095600,14078000,14080000,14074000,14020000},
+              {28124600,28078000,28180000,28074000,28020000}};
 
 static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
     return ((uint32_t)green << 24) |
@@ -128,15 +134,16 @@ void displayMode(uint8_t m) {
 
     char mode[4];
     switch(m) {
-        case 0 : {sprintf(mode,"FT8");break;}
-        case 1 : {sprintf(mode,"JS8");break;}
-        case 2 : {sprintf(mode,"WSPR");break;}
-        case 3 : {sprintf(mode,"FT4");break;}
+        case 0 : {sprintf(mode,"WSPR");break;}
+        case 1 : {sprintf(mode,"FT4");break;}
+        case 2 : {sprintf(mode,"JS8");break;}
+        case 3 : {sprintf(mode,"FT8");break;}
         case 4 : {sprintf(mode,"CW");break;}
     }
 //    snprintf(visible_m
 //        ode, sizeof(visible_mode), "%.3s",
 //             mode != NULL ? mode : "");
+
 
     fill_rectangle(&oled, 0, 0, 20, 9, false);
     ssd1306_draw_text(&oled, 0, 1, mode, 1);
@@ -266,7 +273,7 @@ void rotaryTurn(int direction) {
         return;
     }
 
-    current_frequency_hz += direction * ENCODER_FREQUENCY_STEP_HZ;
+    current_frequency_hz += direction * fStep;
     if (current_frequency_hz < 0) {
         current_frequency_hz = 0;
     }
@@ -313,9 +320,9 @@ void showBand() {
     refresh_oled();
 
     switch(iBand) {
-       case 0   : {sprintf(hi,"10m");break;}
+       case 0   : {sprintf(hi,"40m");break;}
        case 1   : {sprintf(hi,"20m");break;}
-       case 2   : {sprintf(hi,"40m");break;}
+       case 2   : {sprintf(hi,"10m");break;}
     }
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
     refresh_oled();
@@ -374,9 +381,9 @@ void showShift() {
     refresh_oled();
 
     switch(iShift) {
-       case 0   : {sprintf(hi,"600");break;}
-       case 1   : {sprintf(hi,"700");break;}
-       case 2   : {sprintf(hi,"800");break;}
+       case 0   : {sprintf(hi,"600 HZ");break;}
+       case 1   : {sprintf(hi,"700 HZ");break;}
+       case 2   : {sprintf(hi,"800 HZ");break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -394,9 +401,9 @@ void showStep() {
     refresh_oled();
 
     switch(iStep) {
-       case 0   : {sprintf(hi,"10");break;}
-       case 1   : {sprintf(hi,"100");break;}
-       case 2   : {sprintf(hi,"1000");break;}
+       case 0   : {sprintf(hi,"10 HZ");fStep=10L;break;}
+       case 1   : {sprintf(hi,"100 HZ");fStep=100L;break;}
+       case 2   : {sprintf(hi,"1000 HZ");fStep=1000L;break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -461,6 +468,8 @@ void updateMenu(uint8_t m,uint8_t s) {
         case 5 : {iWatch=(iWatch+s)%2;break;}
     }
     displayMenu(m);
+    current_frequency_hz = Bands[iBand][iMode];
+
 }
 void SWclick(bool pressed) {
 
@@ -473,8 +482,6 @@ void SWclick(bool pressed) {
       uint32_t lapSW=time_us_32()-timerSW;
       if (lapSW>LONGPUSH) {
         printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
-        //menuMode=!menuMode;
-        //editMode=false;
 
         if (!menuMode) {            //It is on main panel, so switch to Menu Mode
            menuMode=true;
@@ -545,11 +552,14 @@ int main(void) {
 
     oled_available = ssd1306_init(&oled, OLED_I2C, OLED_I2C_ADDRESS);
 
+    current_frequency_hz = Bands[iBand][iMode];
+
     if (oled_available) {
         ssd1306_clear(&oled);
         (void)ssd1306_show(&oled);
         displayPanel();
     }
+
 
     wait_for_usb_monitor();
 
@@ -568,6 +578,8 @@ int main(void) {
     unsigned led_level = 0;
     absolute_time_t next_blink =
         delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
+
+
 
     while (true) {
         int steps = rotary_encoder_take_steps();
