@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999998 (TeX Live 2026) (preloaded format=xelatex 2026.6.2)  4 SEP 2026 13:09
+This is XeTeX, Version 3.141592653-2.6-0.999998 (TeX Live 2026) (preloaded format=xelatex 2026.6.2)  4 SEP 2026 15:59
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -498,7 +498,7 @@ Package: enumitem 2025/02/06 v3.11 Customized lists
 \enit@count@id=\count342
 \enitdp@description=\count343
 )
-Package hyperref Info: Option `colorlinks' set `true' on input line 19.
+Package hyperref Info: Option `colorlinks' set `true' on input line 21.
 
 (c:/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-xetex.def
 File: l3backend-xetex.def 2026-02-18 L3 backend support: XeTeX
@@ -506,45 +506,49 @@ File: l3backend-xetex.def 2026-02-18 L3 backend support: XeTeX
 \g__pdfannot_backend_int=\count345
 \g__pdfannot_backend_link_int=\count346
 )
-No file Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.aux.
+(./Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.aux
+LaTeX Info: Redefining \. on input line 12.
+LaTeX Info: Redefining \% on input line 12.
+Package babel Info: 'spanish' activates 'spanish' shorthands.
+(babel)             Reported on input line 12.
+)
 \openout1 = `Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 41.
-LaTeX Font Info:    ... okay on input line 41.
-LaTeX Info: Redefining \. on input line 41.
-LaTeX Info: Redefining \% on input line 41.
-Package babel Info: 'spanish' activates 'spanish' shorthands.
-(babel)             Reported on input line 41.
-LaTeX Info: Redefining \microtypecontext on input line 41.
-Package microtype Info: Applying patch `item' on input line 41.
-Package microtype Info: Applying patch `toc' on input line 41.
-Package microtype Info: Applying patch `eqnum' on input line 41.
-Package microtype Info: Applying patch `footnote' on input line 41.
-Package microtype Info: Applying patch `verbatim' on input line 41.
-LaTeX Info: Redefining \microtypesetup on input line 41.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for TU/lmr/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 53.
+LaTeX Font Info:    ... okay on input line 53.
+LaTeX Info: Redefining \. on input line 53.
+LaTeX Info: Redefining \% on input line 53.
+LaTeX Info: Redefining \microtypecontext on input line 53.
+Package microtype Info: Applying patch `item' on input line 53.
+Package microtype Info: Applying patch `toc' on input line 53.
+Package microtype Info: Applying patch `eqnum' on input line 53.
+Package microtype Info: Applying patch `footnote' on input line 53.
+Package microtype Info: Applying patch `verbatim' on input line 53.
+LaTeX Info: Redefining \microtypesetup on input line 53.
 Package microtype Info: Character protrusion enabled (level 2).
 Package microtype Info: Using default protrusion set `alltext'.
 Package microtype Info: No adjustment of tracking.
 Package microtype Info: No adjustment of spacing.
 Package microtype Info: No adjustment of kerning.
+
 (c:/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg
 File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
 (RS)
@@ -584,12 +588,11 @@ File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
 \c@lstlisting=\count347
-Package hyperref Info: Link coloring ON on input line 41.
+Package hyperref Info: Link coloring ON on input line 53.
+(./Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.out)
+(./Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.out)
 \@outlinefile=\write3
 \openout3 = `Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.out'.
-
-
-Package hyperref Warning: Rerun to get /PageLabels entry.
 
 
 (c:/texlive/2026/texmf-dist/tex/latex/translations/translations-basic-dictionar
@@ -598,9 +601,9 @@ File: translations-basic-dictionary-spanish.trsl (spanish translation file `tra
 nslations-basic-dictionary')
 )
 Package translations Info: loading dictionary `translations-basic-dictionary' f
-or `spanish'. on input line 41.
-LaTeX Font Info:    Trying to load font information for T1+lmtt on input line 4
-6.
+or `spanish'. on input line 53.
+LaTeX Font Info:    Trying to load font information for T1+lmtt on input line 5
+5.
  (c:/texlive/2026/texmf-dist/tex/latex/lm/t1lmtt.fd
 File: t1lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
@@ -608,37 +611,37 @@ Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `lmtt' (encoding: T1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
-LaTeX Font Info:    Trying to load font information for OT1+lmr on input line 4
-9.
+LaTeX Font Info:    Trying to load font information for OT1+lmr on input line 6
+8.
 
 (c:/texlive/2026/texmf-dist/tex/latex/lm/ot1lmr.fd
 File: ot1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
-LaTeX Font Info:    Trying to load font information for OML+lmm on input line 4
-9.
+LaTeX Font Info:    Trying to load font information for OML+lmm on input line 6
+8.
 
 (c:/texlive/2026/texmf-dist/tex/latex/lm/omllmm.fd
 File: omllmm.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    Trying to load font information for OMS+lmsy on input line 
-49.
+68.
 
 (c:/texlive/2026/texmf-dist/tex/latex/lm/omslmsy.fd
 File: omslmsy.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    Trying to load font information for OMX+lmex on input line 
-49.
+68.
 
 (c:/texlive/2026/texmf-dist/tex/latex/lm/omxlmex.fd
 File: omxlmex.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <10> on input line 49.
+(Font)              <10.95> on input line 68.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <7> on input line 49.
+(Font)              <8> on input line 68.
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <5> on input line 49.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 49.
+(Font)              <6> on input line 68.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 68.
 
 
 (c:/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd
@@ -647,7 +650,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (c:/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 49.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 68.
 
 
 (c:/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -655,64 +658,38 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
 (c:/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
-)
-Overfull \hbox (1.39777pt too wide) in paragraph at lines 45--53
-[]\T1/lmr/m/n/10 Esta no-ta pre-sen-ta un mé-to-do dis-cre-to y exhaus-ti-vo pa
--ra se-lec-cio-nar con-jun-ta-men-te \T1/lmtt/m/n/10 REFDIV\T1/lmr/m/n/10 ,
- []
-
-LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <10.95> on input line 60.
-LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <8> on input line 60.
-LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <6> on input line 60.
-
-LaTeX Warning: Reference `eq:pio_div' on page 1 undefined on input line 75.
-
-
-LaTeX Warning: Reference `eq:pout' on page 1 undefined on input line 75.
-
-
-LaTeX Warning: Citation `rp2040datasheet' on page 1 undefined on input line 93.
-
-
-[1
+) [1
 
 ]
+Overfull \hbox (29.03273pt too wide) in paragraph at lines 130--137
+\T1/lmr/m/n/10.95 de-ri-va-do de ex-pe-ri-men-tar con pla-cas rp2040 Ze-ro. El 
+ran-go su-pe-rior re-pre-sen-ta un .[]verclock"significativo
+ []
 
-LaTeX Warning: Reference `eq:pout_n' on page 2 undefined on input line 120.
-
-
-LaTeX Warning: Reference `eq:pll' on page 2 undefined on input line 120.
-
-(c:/texlive/2026/texmf-dist/tex/latex/listings/lstlang1.sty
+[2] (c:/texlive/2026/texmf-dist/tex/latex/listings/lstlang1.sty
 File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
-nput line 167.
+nput line 187.
 LaTeX Font Info:    Font shape `T1/lmtt/bx/n' in size <10> not available
-(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 168.
- [2]
+(Font)              Font shape `T1/lmtt/b/n' tried instead on input line 188.
+ [3]
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <12> on input line 238.
+(Font)              <10> on input line 247.
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <7> on input line 247.
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <5> on input line 247.
+LaTeX Font Info:    External font `lmex10' loaded for size
+(Font)              <12> on input line 258.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 238.
+(hyperref)                removing `math shift' on input line 258.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `subscript' on input line 238.
-
-[3]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 267.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `subscript' on input line 267.
+(hyperref)                removing `subscript' on input line 258.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
@@ -722,16 +699,31 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `subscript' on input line 288.
 
-[4] [5]
-Underfull \hbox (badness 6300) in paragraph at lines 362--365
+[4]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 310.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 310.
+
+[5]
+Underfull \hbox (badness 6300) in paragraph at lines 384--387
 []\T1/lmr/m/n/10.95 Raspberry Pi Ltd., \T1/lmr/m/it/10.95 Pi-co SDK---hardware_
 pll\T1/lmr/m/n/10.95 , im-ple-men-ta-ción de \T1/lmtt/m/n/10.95 pll_init\T1/lmr
 /m/n/10.95 . Dis-
  []
 
+
+Underfull \hbox (badness 10000) in paragraph at lines 393--395
+[]\T1/lmr/m/n/10.95 Transmisor di-gi-tal usan-do VCO ba-sa-do en rp2040 [][]$\T
+1/lmtt/m/n/10.95 https : / / github . com / RPiks /
+ []
+
 [6] (./Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.aux
-LaTeX Info: Redefining \. on input line 12.
-LaTeX Info: Redefining \% on input line 12.
+LaTeX Info: Redefining \. on input line 11.
+LaTeX Info: Redefining \% on input line 11.
 )
  ***********
 LaTeX2e <2026-06-01>
@@ -739,29 +731,19 @@ L3 programming layer <2026-05-26>
  ***********
 
 
-LaTeX Warning: There were undefined references.
-
-
 LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
 
-
-Package rerunfilecheck Warning: File `Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.
-out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `Nota_Tecnica_Optimizacion_PLL_PIO_R
-P2040.out':
-(rerunfilecheck)             Before: <no file>
-(rerunfilecheck)             After:  EA8D534B0A1EED62341416D8A1F88068;1676.
+Package rerunfilecheck Info: File `Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.out
+' has not changed.
+(rerunfilecheck)             Checksum: 5A3A5D6C6DC863256B9F0FA777459646;1489.
  ) 
 Here is how much of TeX's memory you used:
- 19511 strings out of 467813
- 370162 string characters out of 5427156
- 1161721 words of memory out of 5000000
- 48392 multiletter control sequences out of 15000+600000
- 691589 words of font info for 92 fonts, out of 8000000 for 9000
+ 19535 strings out of 467813
+ 370742 string characters out of 5427156
+ 1150263 words of memory out of 5000000
+ 48408 multiletter control sequences out of 15000+600000
+ 691904 words of font info for 93 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 71i,13n,79p,1037b,2585s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 71i,13n,79p,1037b,2588s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
 Output written on Nota_Tecnica_Optimizacion_PLL_PIO_RP2040.pdf (6 pages).

@@ -14,6 +14,8 @@
 \usepackage{hyperref}
 \usepackage{siunitx}
 \usepackage{enumitem}
+\usepackage{hyperref}
+
 
 \geometry{margin=2.4cm}
 \hypersetup{colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,citecolor=blue!55!black}
@@ -34,28 +36,45 @@
   tabsize=4
 }
 
-\title{\textbf{Optimización conjunta del PLL\_SYS y del divisor PIO\\para síntesis de frecuencias en el RP2040}}
-\author{Proyecto PixiePico Firmware}
-\date{4 de septiembre de 2026}
+%\title{\textbf{Implementación de VCO con RP2040 usando PIO}}
+%\author{Proyecto PixiePico Firmware}
+%\date{4 de septiembre de 2026}
+
+% --- Configuración del Encabezado ---
+\title{\textbf{Implementación de VCO usando RP2040}}
+
+% Proyecto o código del documento
+\date{\textbf{Proyecto:} PixiePico \\[0.5em] \today} 
+
+% Autor, Afiliación y Correo
+%\author{\textbf{Dr. Pedro E. Colla (LU7DZ) $\href{mailto:pedro.colla@gmail.com}{pedro.colla@gmail.com}$}}
+\author{\textbf{Dr. Pedro E. Colla (LU7DZ)} \\ \href{mailto:pedro.colla@gmail.com}{\texttt{pedro.colla@gmail.com}}}
 
 \begin{document}
 \maketitle
-
 \begin{abstract}
-Esta nota presenta un método discreto y exhaustivo para seleccionar conjuntamente
-\texttt{REFDIV}, \texttt{FBDIV}, \texttt{POSTDIV1}, \texttt{POSTDIV2} y el divisor
-fraccional Q16.8 de una máquina de estados PIO del RP2040. El objetivo es minimizar
-el error absoluto de una salida cuadrada cuya frecuencia nominal puede variar. Se
-considera un cristal de \SI{12}{MHz}, una instrucción PIO para el estado alto y otra
-para el estado bajo, y el intervalo experimental
-\(\SI{125}{MHz}\le f_{\mathrm{SYS}}\le\SI{250}{MHz}\). Se presentan resultados para
-\SI{7.074}{MHz}, \SI{14.074}{MHz} y \SI{28.074}{MHz}.
+Esta nota técnica documenta el desarrollo de un algoritmo para implementar un VCO (DDS) basado en la
+utilización de un procesador ARM rp2040 tal como el disponible en placas rp2040 Zero o Raspberry Pico.
+El VCO utiliza un PIO entre los 8 disponibles en la arquitectura para generar una onda cuadrada a partir
+del control del clock de ejecución y los divisores disponibles.
+Se analiza el error obtenible en distintos escenarios y su aplicabilidad en el rango de frecuencias de HF.
 \end{abstract}
+
+\section{Introducción}
+
+Este documento refleja el desarrollo realizado como parte del proyecto PixiePico
+para implementar un generador de señales que pueda funcionar en el rango de HF
+a partir de un procesador ARM rp2040.
+El trabajo se basa en lo desarrollado para el proyecto $\href{https://github.com/lu7did/ADX_ddsPIO}{ADX ddsPIO}$
+antecedentes de técnicas similares se pueden encontrar en el proyecto $\href{https://github.com/RPiks/pico-WSPR-tx}{pico-WSPR-tx}$
+Se aprovecha la disponibilidad en el procesador ARM rp2040 de hasta 8 procesadores auxiliares RISC
+denominados PIO, cada uno de ellos con su propio espacio de ejecución y firmware modificable.
 
 \section{Planteo del problema}
 
-El oscilador utiliza \texttt{PLL\_SYS} como fuente de reloj de una máquina de
-estados PIO. El programa PIO ejecuta dos estados por cada período de salida:
+El oscilador se construye a partir de una máquina de estados PIO disponible en el 
+procesador rp2040. Esa máquina se configura para utilizar el clock del procesador \texttt{PLL\_SYS} ($f_{SYS}$)
+como fuente de reloj de la máquina de estados. El programa PIO ejecuta dos estados por cada período de salida:
 uno mantiene la señal alta y el siguiente la mantiene baja. Por lo tanto,
 si \(D\) es el divisor de reloj de la PIO,
 \begin{equation}
@@ -63,7 +82,7 @@ si \(D\) es el divisor de reloj de la PIO,
  \label{eq:pout}
 \end{equation}
 
-El divisor PIO se representa en formato Q16.8:
+El divisor utilizado para generar el clock del PIO a partir del clock principal se representa en formato Q16.8:
 \begin{equation}
  D=d_{\mathrm{int}}+\frac{d_{\mathrm{frac}}}{256}
   =\frac{N}{256},
@@ -105,17 +124,18 @@ Con \(f_{\mathrm{XOSC}}=\SI{12}{MHz}\), la primera restricción implica
  \quad\Longrightarrow\quad
  \boxed{REFDIV\in\{1,2\}}.
 \end{equation}
-Por consiguiente, fijar \texttt{REFDIV=1} no era una condición necesaria: era
-solamente una reducción del espacio de búsqueda. Permitir \texttt{REFDIV=2}
-duplica la resolución disponible en la síntesis del VCO y genera soluciones
-adicionales válidas.
+Por consiguiente se puede fijar \texttt{REFDIV} como parte de la solución mientras
+genere soluciones válidas.
 
 El intervalo \SIrange{125}{250}{MHz} para \(f_{\mathrm{SYS}}\) es un requisito
-experimental del proyecto PixiePico. No debe confundirse con la frecuencia
-nominal garantizada por la especificación del RP2040: la zona superior del
-intervalo constituye overclocking y debe validarse sobre el hardware concreto.
+experimental del proyecto PixiePico derivado de experimentar con placas rp2040 Zero.
+El rango superior representa un "overclock" significativo de la placa pues la misma
+opera en forma nominal a $f_{SYS}=125 MHz$, sin embargo se comprueba empiricamente
+que opera bien en esas frecuencias. Algunas placas Raspberry Pico se pueden hacer 
+operar en el intervalo mas amplio \SIrange{125}{250}{MHz} pero esa diferencia no 
+contribuye significativamente a la solución del problema. 
 
-\section{Función objetivo conjunta}
+\section{Función objetivo}
 
 Combinando \eqref{eq:pout_n} y \eqref{eq:pll} se obtiene
 \begin{equation}
@@ -146,11 +166,10 @@ Una frecuencia \(f_{\mathrm{SYS}}\) que no sea la más cercana a un valor elegid
 a priori puede producir un error final menor al combinarse con cierto valor
 entero \(N\).
 
-\section{Algoritmo de búsqueda exhaustiva}
+\section{Algoritmo de búsqueda}
 
 El espacio de parámetros es discreto y pequeño. Por ello, una enumeración
-exhaustiva entrega el óptimo global dentro del modelo, sin depender de semillas,
-gradientes ni mínimos locales.
+exhaustiva entrega el óptimo global dentro del modelo.
 
 Para cada cuádrupla válida de parámetros PLL se calcula
 \begin{equation}
@@ -160,9 +179,10 @@ Como el error es monótono a cada lado de \(N^*\), basta evaluar
 \(\lfloor N^*\rfloor\) y \(\lceil N^*\rceil\). No es necesario recorrer los
 más de dieciséis millones de valores posibles del registro PIO.
 
-Se recomienda usar aritmética racional o enteros suficientemente anchos. El uso
-prematuro de \texttt{float} puede cambiar el orden de candidatos con errores muy
-próximos.
+Se utiliza  aritmética entera, El uso prematuro de aritmética \texttt{float} puede cambiar el orden de candidatos con errores muy próximos.
+
+El código Python que permite evaluar las soluciones para una dada frecuencia objetivo y el error que
+se puede optimizar es el siguiente:
 
 \begin{lstlisting}[language=Python,caption={Implementación de referencia del optimizador}]
 from fractions import Fraction
@@ -222,7 +242,7 @@ def optimize(target_hz):
 \begin{table}[htbp]
 \centering
 \small
-\caption{Configuraciones óptimas encontradas mediante búsqueda exhaustiva.}
+\caption{Configuraciones óptimas encontradas para frecuencias testigo.}
 \label{tab:results}
 \begin{tabular}{@{}rrrrrrrr@{}}
 \toprule
@@ -263,6 +283,7 @@ Como comprobación, \SI{233}{MHz} también resulta sintetizable cuando se permit
 \texttt{REFDIV=2}: \((2,233,3,2)\) produce un VCO de \SI{1398}{MHz} y
 \(f_{\mathrm{SYS}}=\SI{233}{MHz}\). Con \(N=4216\), su error es
 \(+\SI{3.795066}{Hz}\), ligeramente mayor que el óptimo global.
+El error obtenible es compatible con la utilización del generador en FT8 y CW.
 
 \subsection{Caso \(f_T=\SI{14.074}{MHz}\)}
 
@@ -284,6 +305,7 @@ La salida resultante es
  \Delta f &= \boxed{-\SI{3.126628}{Hz}},\\
  \varepsilon &= \boxed{-0{,}222156\ \mathrm{ppm}}.
 \end{align}
+El error obtenible es compatible con la utilización del generador en FT8 y CW.
 
 \subsection{Caso \(f_T=\SI{28.074}{MHz}\)}
 
@@ -311,13 +333,16 @@ mismo VCO de \SI{1566}{MHz} con \((POSTDIV1,POSTDIV2,N)=(6,2,595)\),
 \((5,2,714)\) o \((7,1,1020)\) conserva la misma razón final. La selección entre
 ellas puede realizarse según frecuencia del sistema, consumo y compatibilidad
 con el resto del firmware.
+El error obtenible es compatible con la utilización del generador en CW pero no
+en FT8.
 
-\section{Interpretación y limitaciones}
+\section{Limitaciones}
 
 \begin{enumerate}[leftmargin=*]
  \item La búsqueda obtiene el óptimo global \emph{estático} dentro de las
- restricciones declaradas. No garantiza error cero porque todos los divisores
- relevantes son enteros o racionales con granularidad finita.
+ restricciones establecidas, el error no es cero pero se evalúa dentro de rangos
+ que los hace compatibles con los principales usos anticipados (CW y modos digitales
+ de baja señal).
  \item El valor nominal calculado no incluye tolerancia, deriva térmica ni
  envejecimiento del cristal de \SI{12}{MHz}. En la práctica, varios ppm del
  cristal pueden superar el error matemático residual del algoritmo.
@@ -330,27 +355,24 @@ con el resto del firmware.
  flash y cualquier lógica que suponga una frecuencia fija. El PLL USB es
  independiente, aunque el firmware USB puede verse afectado indirectamente si
  el cambio no se secuencia correctamente.
- \item Para errores menores que el óptimo estático puede alternarse entre dos
- divisores PIO adyacentes en una proporción calculada. Esto reduce el error
- promedio, pero introduce modulación determinista y componentes laterales; por
- ello constituye otro problema de diseño y no debe confundirse con una
- frecuencia estática exacta.
+ \item Para errores menores que el óptimo estático la solución es alternar entre dos
+ divisores PIO adyacentes en una proporción calculada lo que reduce el error
+ promedio, pero introduce modulación de frecuencia (Jitter) y componentes laterales por
+ lo que se analizará por separado su implementación utilizando un método de 
+ acumulación de  Bresenham para poder intercalar dos tramas de clocks operando en 
+ DMA diferentes.
 \end{enumerate}
 
-\section{Recomendación de implementación}
+\section{Implementación}
 
-El firmware debería conservar los cinco parámetros del candidato ganador, no
+El firmware debe conservar los cinco parámetros de la solución óptima, no
 solo \(f_{\mathrm{SYS}}\) y \(D\). La estructura de resultado debe incluir como
 mínimo \texttt{refdiv}, \texttt{fbdiv}, \texttt{postdiv1}, \texttt{postdiv2},
 \texttt{pio\_div\_int}, \texttt{pio\_div\_frac}, frecuencia calculada y error.
 Antes de aplicar el resultado, debe verificarse nuevamente cada restricción y
 configurar el PLL mediante sus parámetros exactos.
-
-Para el primer ensayo de hardware se recomienda comenzar con
-\SI{14.074}{MHz}, porque su solución usa un \(f_{\mathrm{SYS}}\) entero de
-\SI{211}{MHz} y ofrece el menor error relativo de los tres casos. Después debe
-medirse la salida con un contador referenciado; sin esa medición, optimizar por
-debajo de un ppm es precisión matemática, no necesariamente precisión física.
+El diseño es adecuado para modos digitales de baja señal en bandas de HF hasta
+14 MHz y hasta 28 MHz para CW.
 
 \begin{thebibliography}{9}
 \bibitem{rp2040datasheet}
@@ -362,6 +384,15 @@ sección 2.18, ``PLL'', versión de febrero de 2025. Disponible en:
 Raspberry Pi Ltd., \emph{Pico SDK---hardware\_pll}, implementación de
 \texttt{pll\_init}. Disponible en:
 \url{https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_pll/pll.c}.
+
+\bibitem{ADX_ddsPIO}
+Transceiver digital modos de señales débiles
+\url{https://github.com/lu7did/ADX_ddsPIO}.
+
+\bibitem{pico-WSPR-tx}
+Transmisor digital usando VCO basado en rp2040
+\url{https://github.com/RPiks/pico-WSPR-tx}.
+
 \end{thebibliography}
 
 \end{document}
