@@ -21,6 +21,7 @@ International (CC BY-SA 4.0).
 #include "hardware/pio.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
+#include "dds.h"
 #include "rotary_encoder.h"
 #include "ssd1306.h"
 #include "ws2812.pio.h"
@@ -38,6 +39,8 @@ International (CC BY-SA 4.0).
 #define ENCODER_FREQUENCY_STEP_HZ 10L
 #define BLINK_INTERVAL_MS 500
 #define WS2812_FREQUENCY_HZ 800000.0f
+#define DDS_OUTPUT_GPIO DDS_DEFAULT_GPIO
+#define DDS_TUNE_SETTLE_MS 350u
 
 #ifndef PICO_DEFAULT_WS2812_PIN
 #define PICO_DEFAULT_WS2812_PIN 16
@@ -49,6 +52,11 @@ International (CC BY-SA 4.0).
 static ssd1306_t oled;
 static bool oled_available = false;
 static long current_frequency_hz = 28074000L;
+static dds_t dds;
+static dds_solution_t dds_solution;
+static bool dds_available = false;
+static bool dds_frequency_pending = false;
+static absolute_time_t dds_frequency_deadline;
 
 uint32_t timerSW = 0UL;
 
@@ -278,6 +286,9 @@ void rotaryTurn(int direction) {
         current_frequency_hz = 0;
     }
     displayFreq(current_frequency_hz);
+    dds_frequency_pending = true;
+    dds_frequency_deadline =
+        delayed_by_ms(get_absolute_time(), DDS_TUNE_SETTLE_MS);
     printf("Encoder: %+d; frecuencia: %ld Hz\r\n",
            direction, current_frequency_hz);
     fflush(stdout);
@@ -458,17 +469,28 @@ void displayMenu(uint8_t i) {
     showEdit(menuItem);
 
 }
-void updateMenu(uint8_t m,uint8_t s) {
+static uint8_t wrap_add(uint8_t value, int delta, uint8_t count) {
+    int result = ((int)value + delta) % (int)count;
+    if (result < 0) {
+        result += count;
+    }
+    return (uint8_t)result;
+}
+
+void updateMenu(uint8_t m, int s) {
     switch(m) {
-        case 0 : {iBand=(iBand+s)%3;break;}
-        case 1 : {iMode=(iMode+s)%5;break;}
-        case 2 : {iVfo=(iVfo+s)%2;break;}
-        case 3 : {iShift=(iShift+s)%3;break;}
-        case 4 : {iStep=(iStep+s)%3;break;}
-        case 5 : {iWatch=(iWatch+s)%2;break;}
+        case 0 : {iBand=wrap_add(iBand,s,3);break;}
+        case 1 : {iMode=wrap_add(iMode,s,5);break;}
+        case 2 : {iVfo=wrap_add(iVfo,s,2);break;}
+        case 3 : {iShift=wrap_add(iShift,s,3);break;}
+        case 4 : {iStep=wrap_add(iStep,s,3);break;}
+        case 5 : {iWatch=wrap_add(iWatch,s,2);break;}
     }
     displayMenu(m);
     current_frequency_hz = Bands[iBand][iMode];
+    dds_frequency_pending = true;
+    dds_frequency_deadline =
+        delayed_by_ms(get_absolute_time(), DDS_TUNE_SETTLE_MS);
 
 }
 void SWclick(bool pressed) {
@@ -531,6 +553,30 @@ void SWclick(bool pressed) {
 }
 
 int main(void) {
+    /*
+    uint32_t pending_frequency_hz;
+    if (dds_take_pending_frequency(&pending_frequency_hz)) {
+        current_frequency_hz = (long)pending_frequency_hz;
+    }
+    */
+
+    const dds_config_t dds_config = {
+        .pio = pio1,
+        .state_machine = -1,
+        .dma_channel = -1,
+        .output_gpio = DDS_OUTPUT_GPIO,
+        .sys_clk_min_hz = DDS_SYS_CLK_MIN_HZ,
+        .sys_clk_max_hz = DDS_SYS_CLK_MAX_HZ,
+        .reboot_on_pll_change = false,
+    };
+
+    /* Critical ordering: solve/apply PLL and start PIO before USB is
+     * initialized. Reprogramming PLL_SYS with TinyUSB mounted was unstable. */
+    dds_available = dds_init(&dds, &dds_config) &&
+                    dds_solve(&dds, (uint32_t)current_frequency_hz,
+                              &dds_solution) &&
+                    dds_start(&dds, &dds_solution);
+
     stdio_init_all();
 
     const PIO pio = pio0;
@@ -552,7 +598,9 @@ int main(void) {
 
     oled_available = ssd1306_init(&oled, OLED_I2C, OLED_I2C_ADDRESS);
 
-    current_frequency_hz = Bands[iBand][iMode];
+    if (current_frequency_hz <= 0) {
+        current_frequency_hz = Bands[iBand][iMode];
+    }
 
     if (oled_available) {
         ssd1306_clear(&oled);
@@ -563,7 +611,7 @@ int main(void) {
 
     wait_for_usb_monitor();
 
-    printf("testGUI iniciado en Waveshare RP2040-Zero\r\n");
+    printf("testDDS iniciado en Waveshare RP2040-Zero\r\n");
     printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
     printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
@@ -571,6 +619,22 @@ int main(void) {
            oled_available ? "detectado" : "NO detectado");
     printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
            ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
+    if (dds_available) {
+        printf("DDS: GPIO%u, objetivo=%" PRIu32 " Hz, PLL_SYS=%" PRIu32
+               " Hz\r\n",
+               DDS_OUTPUT_GPIO, dds_solution.target_hz,
+               dds_solution.sys_clk_hz);
+        printf("DDS: CLKDIV=%u+%u/256, patron=%u/%u, salida=%.6f Hz, "
+               "error=%+.6f Hz\r\n",
+               dds_solution.pio_divider_int,
+               dds_solution.pio_divider_frac,
+               dds_solution.pattern_ones,
+               dds_solution.pattern_bits,
+               dds_solution.achieved_hz,
+               dds_solution.error_hz);
+    } else {
+        printf("DDS: ERROR de inicializacion/solucion\r\n");
+    }
     fflush(stdout);
 
     bool is_on = false;
@@ -596,10 +660,7 @@ int main(void) {
               }
            } else {
               if (!editMode) {
-                 menuItem=menuItem+steps;
-                 if (menuItem>MAXMENU) {
-                    menuItem=0;
-                 }
+                 menuItem=wrap_add(menuItem, steps, MAXMENU + 1);
                  displayMenu(menuItem);
               } else {
                  updateMenu(menuItem,steps);
@@ -610,6 +671,66 @@ int main(void) {
         bool switch_pressed;
         if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
             SWclick(switch_pressed);
+        }
+
+        /* Coalesce rapid encoder steps. If the globally optimal solution uses
+         * another PLL, dds_setfreq stores the target and reboots once, after
+         * tuning has paused, so USB is never exposed to a live PLL change. */
+        if (dds_available && dds_frequency_pending &&
+            time_reached(dds_frequency_deadline)) {
+            dds_frequency_pending = false;
+
+            /* DEBUG
+            const dds_setfreq_result_t result =
+                dds_setfreq(&dds, (uint32_t)current_frequency_hz,
+                            &dds_solution);
+            
+                printf("DDS setfreq %" PRIu32 " Hz: %s; error estimado=%+.6f Hz\r\n",
+                   (uint32_t)current_frequency_hz,
+                   dds_setfreq_result_name(result),
+                   dds_solution.error_hz);
+            fflush(stdout);
+            */
+     const uint32_t previous_sys_clk_hz = clock_get_hz(clk_sys);
+
+const dds_setfreq_result_t result =
+    dds_setfreq(&dds, (uint32_t)current_frequency_hz,
+                &dds_solution);
+
+const uint32_t new_sys_clk_hz = clock_get_hz(clk_sys);
+
+if (result == DDS_SETFREQ_APPLIED &&
+    new_sys_clk_hz != previous_sys_clk_hz) {
+
+    /*
+     * Restaurar la frecuencia efectiva del bus I2C utilizado
+     * por el display OLED.
+     */
+    i2c_set_baudrate(OLED_I2C, OLED_I2C_FREQUENCY_HZ);
+
+    /*
+     * Reconfigurar el divisor de PIO0 utilizado por WS2812.
+     * pio, state_machine y pio_offset ya fueron declarados
+     * previamente en main().
+     */
+    ws2812_program_init(pio, state_machine, pio_offset,
+                        PICO_DEFAULT_WS2812_PIN,
+                        WS2812_FREQUENCY_HZ, false);
+}
+
+printf("DDS setfreq %" PRIu32
+       " Hz: %s; PLL_SYS=%" PRIu32
+       " Hz; error estimado=%+.6f Hz\r\n",
+       (uint32_t)current_frequency_hz,
+       dds_setfreq_result_name(result),
+       new_sys_clk_hz,
+       dds_solution.error_hz);
+
+fflush(stdout);      
+
+
+
+//*---            
         }
 
         if (time_reached(next_blink)) {

@@ -21,6 +21,7 @@ International (CC BY-SA 4.0).
 #include "hardware/pio.h"
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
+#include "ddsvco.h"
 #include "rotary_encoder.h"
 #include "ssd1306.h"
 #include "ws2812.pio.h"
@@ -38,6 +39,8 @@ International (CC BY-SA 4.0).
 #define ENCODER_FREQUENCY_STEP_HZ 10L
 #define BLINK_INTERVAL_MS 500
 #define WS2812_FREQUENCY_HZ 800000.0f
+#define DDSVCO_OUTPUT_GPIO DDSVCO_DEFAULT_GPIO
+#define DDSVCO_TUNE_SETTLE_MS 350u
 
 #ifndef PICO_DEFAULT_WS2812_PIN
 #define PICO_DEFAULT_WS2812_PIN 16
@@ -48,7 +51,12 @@ International (CC BY-SA 4.0).
 
 static ssd1306_t oled;
 static bool oled_available = false;
-static long current_frequency_hz = 28074000L;
+static long current_frequency_hz = 7074000L;
+static ddsvco_t vco;
+static ddsvco_solution_t vco_solution;
+static bool vco_available = false;
+static bool vco_frequency_pending = false;
+static absolute_time_t vco_frequency_deadline;
 
 uint32_t timerSW = 0UL;
 
@@ -278,6 +286,9 @@ void rotaryTurn(int direction) {
         current_frequency_hz = 0;
     }
     displayFreq(current_frequency_hz);
+    vco_frequency_pending = true;
+    vco_frequency_deadline =
+        delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
     printf("Encoder: %+d; frecuencia: %ld Hz\r\n",
            direction, current_frequency_hz);
     fflush(stdout);
@@ -458,17 +469,28 @@ void displayMenu(uint8_t i) {
     showEdit(menuItem);
 
 }
-void updateMenu(uint8_t m,uint8_t s) {
+static uint8_t wrap_add(uint8_t value, int delta, uint8_t count) {
+    int result = ((int)value + delta) % (int)count;
+    if (result < 0) {
+        result += count;
+    }
+    return (uint8_t)result;
+}
+
+void updateMenu(uint8_t m, int s) {
     switch(m) {
-        case 0 : {iBand=(iBand+s)%3;break;}
-        case 1 : {iMode=(iMode+s)%5;break;}
-        case 2 : {iVfo=(iVfo+s)%2;break;}
-        case 3 : {iShift=(iShift+s)%3;break;}
-        case 4 : {iStep=(iStep+s)%3;break;}
-        case 5 : {iWatch=(iWatch+s)%2;break;}
+        case 0 : {iBand=wrap_add(iBand,s,3);break;}
+        case 1 : {iMode=wrap_add(iMode,s,5);break;}
+        case 2 : {iVfo=wrap_add(iVfo,s,2);break;}
+        case 3 : {iShift=wrap_add(iShift,s,3);break;}
+        case 4 : {iStep=wrap_add(iStep,s,3);break;}
+        case 5 : {iWatch=wrap_add(iWatch,s,2);break;}
     }
     displayMenu(m);
     current_frequency_hz = Bands[iBand][iMode];
+    vco_frequency_pending = true;
+    vco_frequency_deadline =
+        delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
 
 }
 void SWclick(bool pressed) {
@@ -531,6 +553,28 @@ void SWclick(bool pressed) {
 }
 
 int main(void) {
+    uint32_t pending_frequency_hz;
+    if (ddsvco_take_pending_frequency(&pending_frequency_hz)) {
+        current_frequency_hz = (long)pending_frequency_hz;
+    }
+
+    const ddsvco_config_t vco_config = {
+        .pio = pio1,
+        .state_machine = -1,
+        .output_gpio = DDSVCO_OUTPUT_GPIO,
+        .sys_clk_min_hz = DDSVCO_SYS_CLK_MIN_HZ,
+        .sys_clk_max_hz = DDSVCO_SYS_CLK_MAX_HZ,
+        /* Cambio en vivo: no reinicia ni reenumera el puerto USB CDC. */
+        .reboot_on_pll_change = false,
+    };
+
+    /* Critical ordering: solve/apply PLL and start PIO before USB is
+     * initialized. Reprogramming PLL_SYS with TinyUSB mounted was unstable. */
+    vco_available = ddsvco_init(&vco, &vco_config) &&
+                    ddsvco_solve(&vco, (uint32_t)current_frequency_hz,
+                              &vco_solution) &&
+                    ddsvco_start(&vco, &vco_solution);
+
     stdio_init_all();
 
     const PIO pio = pio0;
@@ -552,7 +596,9 @@ int main(void) {
 
     oled_available = ssd1306_init(&oled, OLED_I2C, OLED_I2C_ADDRESS);
 
-    current_frequency_hz = Bands[iBand][iMode];
+    if (current_frequency_hz <= 0) {
+        current_frequency_hz = Bands[iBand][iMode];
+    }
 
     if (oled_available) {
         ssd1306_clear(&oled);
@@ -563,7 +609,7 @@ int main(void) {
 
     wait_for_usb_monitor();
 
-    printf("testGUI iniciado en Waveshare RP2040-Zero\r\n");
+    printf("testVCO iniciado en Waveshare RP2040-Zero\r\n");
     printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
     printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
@@ -571,6 +617,29 @@ int main(void) {
            oled_available ? "detectado" : "NO detectado");
     printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
            ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
+    if (vco_available) {
+        printf("VCO: GPIO%u, objetivo=%" PRIu32
+               " Hz, PLL_SYS=%.6f Hz\r\n",
+               DDSVCO_OUTPUT_GPIO, vco_solution.target_hz,
+               (double)vco_solution.sys_clk_num /
+                   (double)vco_solution.sys_clk_den);
+        printf("VCO: REFDIV=%u, FBDIV=%u, POSTDIV=%u/%u, VCO=%" PRIu32
+               " Hz\r\n",
+               (unsigned)vco_solution.pll_refdiv,
+               (unsigned)vco_solution.pll_fbdiv,
+               (unsigned)vco_solution.pll_postdiv1,
+               (unsigned)vco_solution.pll_postdiv2,
+               vco_solution.pll_vco_hz);
+        printf("VCO: CLKDIV=%u+%u/256, salida=%.6f Hz, "
+               "error=%+.6f Hz (%+.6f ppm)\r\n",
+               (unsigned)vco_solution.pio_divider_int,
+               (unsigned)vco_solution.pio_divider_frac,
+               vco_solution.achieved_hz,
+               vco_solution.error_hz,
+               vco_solution.error_ppm);
+    } else {
+        printf("VCO: ERROR de inicializacion/solucion\r\n");
+    }
     fflush(stdout);
 
     bool is_on = false;
@@ -596,10 +665,7 @@ int main(void) {
               }
            } else {
               if (!editMode) {
-                 menuItem=menuItem+steps;
-                 if (menuItem>MAXMENU) {
-                    menuItem=0;
-                 }
+                 menuItem=wrap_add(menuItem, steps, MAXMENU + 1);
                  displayMenu(menuItem);
               } else {
                  updateMenu(menuItem,steps);
@@ -610,6 +676,45 @@ int main(void) {
         bool switch_pressed;
         if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
             SWclick(switch_pressed);
+        }
+
+        /* Agrupa pasos rápidos del encoder. El cambio de PLL se realiza en
+         * vivo manteniendo PLL_USB y clk_peri a 48 MHz. */
+        if (vco_available && vco_frequency_pending &&
+            time_reached(vco_frequency_deadline)) {
+            vco_frequency_pending = false;
+
+            const uint32_t previous_sys_clk_hz = clock_get_hz(clk_sys);
+            const ddsvco_setfreq_result_t result =
+                ddsvco_setfreq(&vco, (uint32_t)current_frequency_hz,
+                               &vco_solution);
+
+            const uint32_t new_sys_clk_hz = clock_get_hz(clk_sys);
+            if (result == DDSVCO_SETFREQ_APPLIED &&
+                new_sys_clk_hz != previous_sys_clk_hz) {
+                /* PIO0 también deriva de clk_sys: restaurar 800 kHz del
+                 * WS2812 después de modificar PLL_SYS. */
+                ws2812_program_init(pio, state_machine, pio_offset,
+                                    PICO_DEFAULT_WS2812_PIN,
+                                    WS2812_FREQUENCY_HZ, false);
+            }
+
+            printf("VCO setfreq %" PRIu32
+                   " Hz: %s; PLL=%u/%u/%u/%u; "
+                   "CLKDIV=%u+%u/256; salida=%.6f Hz; "
+                   "error=%+.6f Hz (%+.6f ppm)\r\n",
+                   (uint32_t)current_frequency_hz,
+                   ddsvco_setfreq_result_name(result),
+                   (unsigned)vco_solution.pll_refdiv,
+                   (unsigned)vco_solution.pll_fbdiv,
+                   (unsigned)vco_solution.pll_postdiv1,
+                   (unsigned)vco_solution.pll_postdiv2,
+                   (unsigned)vco_solution.pio_divider_int,
+                   (unsigned)vco_solution.pio_divider_frac,
+                   vco_solution.achieved_hz,
+                   vco_solution.error_hz,
+                   vco_solution.error_ppm);
+            fflush(stdout);
         }
 
         if (time_reached(next_blink)) {

@@ -1,0 +1,535 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[provide=*,spanish]{babel}
+\usepackage{lmodern,microtype}
+\usepackage[a4paper,left=18mm,right=18mm,top=17mm,bottom=20mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,array,longtable,tabularx}
+\usepackage[table]{xcolor}
+\usepackage{fancyhdr,titlesec,enumitem,listings}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{navy}{HTML}{17324D}
+\definecolor{blue}{HTML}{2D6A9F}
+\definecolor{pale}{HTML}{EAF2F8}
+\definecolor{light}{HTML}{F5F7FA}
+\definecolor{graytext}{HTML}{5D6D7E}
+\definecolor{bodytext}{HTML}{202830}
+\color{bodytext}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlength{\emergencystretch}{1em}
+\setlist{nosep,leftmargin=5mm}
+\renewcommand{\arraystretch}{1.22}
+\titleformat{\section}{\Large\bfseries\color{navy}}{\thesection.}{0.45em}{}
+\titleformat{\subsection}{\large\bfseries\color{blue}}{\thesubsection.}{0.45em}{}
+\titlespacing*{\section}{0pt}{12pt}{7pt}
+\titlespacing*{\subsection}{0pt}{9pt}{4pt}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.35pt}
+\fancyfoot[L]{\footnotesize\color{graytext}Firmware PixiePico -- Nota técnica PLL/PIO}
+\fancyfoot[R]{\footnotesize\color{graytext}Página \thepage}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newtcolorbox{technicalbox}{
+  colback=pale,colframe=blue,boxrule=0.55pt,arc=0pt,
+  left=2mm,right=2mm,top=1.4mm,bottom=1.4mm}
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\scriptsize,backgroundcolor=\color{light},
+  frame=single,rulecolor=\color{graytext!35},breaklines=true,
+  columns=fullflexible,keepspaces=true,showstringspaces=false,
+  xleftmargin=1mm,xrightmargin=1mm}
+% Fallback autocontenido para no depender de siunitx.
+\newcommand{\num}[1]{#1}
+\newcommand{\SI}[2]{#1\,\ensuremath{\mathrm{#2}}}
+\newcommand{\mega}{M}
+\newcommand{\hertz}{Hz}
+
+\begin{document}
+\pagenumbering{gobble}
+\begin{titlepage}
+\centering
+\vspace*{14mm}
+{\Huge\bfseries\color{navy}Síntesis de frecuencia de alta precisión\par}
+\vspace{2mm}
+{\Huge\bfseries\color{navy}con PLL\_SYS y PIO en RP2040\par}
+\vspace{8mm}
+{\large\color{graytext}Optimización para 7,074 / 14,074 / 28,074 MHz y corrección de Bresenham\par}
+\vspace{8mm}
+{\color{blue}\rule{0.82\textwidth}{1pt}}
+\vspace{10mm}
+{\large Proyecto: \textbf{Firmware PixiePico}\\
+Plataforma: RP2040 Zero -- Pico SDK -- PIO\\
+Fecha: 1 de septiembre de 2026\par}
+Autor: Dr. Pedro E. Colla (LU7DZ)
+\vspace{17mm}
+\begin{minipage}{0.91\textwidth}
+{\LARGE\bfseries\color{navy}Resumen del problema\par}
+\vspace{3mm}
+\begin{technicalbox}
+Para una salida cuadrada simple utilizando una arquitectura rp2040 requiere dos estados lógicos por período.
+Con el divisor PIO en formato \textbf{16.8}, la frecuencia ideal de un programa
+de dos estados es
+\[
+ f_{\mathrm{out}}=\frac{128f_{\mathrm{sys}}}{N},
+\]
+donde \(N\) es entero y representa 256 veces el divisor completo. La búsqueda
+exhaustiva sobre todos los PLL\_SYS realmente alcanzables entre 125 y 250 MHz
+no logra un error estático menor que 1 Hz en los tres ejemplos. Los mínimos
+son 5,5266 Hz, 25,5548 Hz y 50,4202 Hz. Sin embargo, alternando duraciones
+adyacentes con un acumulador de error, el período medio teórico puede hacerse
+igual al objetivo.
+\end{technicalbox}
+La precisión teórica (algorítmica) no equivale a precisión real: para garantizar
+\(\pm1\) Hz a 28,074 MHz la referencia de 12 MHz debe estar calibrada mejor
+que 0,036 ppm, condición que el reloj de una placa rp2040 no cumple y cuya falta de precisión
+dominará el error final aunque la precisión media sea cero.
+\end{minipage}
+\vfill
+\end{titlepage}
+\pagenumbering{arabic}
+
+\section{Alcance y supuestos}
+Se intenta desarrollar una única salida de onda cuadrada. Un período
+completo contiene un estado alto y uno bajo; por ello el factor de estados es
+\(S=2\). El reloj de sistema puede someterse a "overclock" pero por consideraciones
+prácticas se limita el intervalo al rango 125 a 250 MHz.
+Por otra parte, no todas las frecuencia de clock son viables pueso que éstas se logran
+mediante divisores tales que puedan producir el  PLL\_SYS del RP2040
+deseado a partir de XOSC=\SI{12}{\mega\hertz} y con la ruta usada
+por \texttt{set\_sys\_clock\_pll()} y \texttt{check\_sys\_clock\_hz()}.
+
+\subsection{Restricciones del espacio discreto}
+\rowcolors{2}{light}{white}
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.24\textwidth}Y}
+\toprule
+\rowcolor{navy}\color{white}Elemento & \color{white}Restricción usada\\
+\midrule
+XOSC & \SI{12000000}{\hertz}\\
+PLL refdiv & Fijo según \texttt{PLL\_SYS\_REFDIV} del SDK; no es posible asignar
+refdiv arbitrarios que \texttt{set\_sys\_clock\_pll()} no aplica.\\
+FBDIV & Entero; se enumera 16--320 y se filtra por VCO válido.\\
+VCO & 750--1600 MHz.\\
+POSTDIV1/2 & 1--7, con \(\mathrm{POSTDIV1}\geq\mathrm{POSTDIV2}\).\\
+PLL\_SYS & 125--250 MHz y división exacta del VCO.\\
+Divisor PIO & \(D=d_{\mathrm{int}}+d_{\mathrm{frac}}/256=N/256\);
+\(N\geq256\). El hardware utiliza formato 16.8.\\
+Forma de onda & Dos estados PIO por período: alto y bajo.\\
+\bottomrule
+\end{tabularx}
+
+El SDK busca configuraciones con un VCO válido y postdivisores enteros;
+\texttt{check\_sys\_clock\_hz()} sólo acepta una frecuencia si el resultado
+del PLL es exacto. Esta validación debe ser tenida en cuenta en la solución
+pues caso contrario el estado del sistema corre el riesgo de quedar inestable
+y otros subsistemas funcionar incorrectamente, por ejemplo el sistema de soporte
+a USB.
+
+\subsection{Hipótesis  y límites}
+El máximo alcanzado consistentemente en las placas disponibles fue 250 MHz,
+a la cual el hardware funcionó correctamente (para un clock nominal sin "overclock" 
+de 125 MHz. 270 MHz funciona en alguna placas y produce fallas de USB en otras.
+Es por lo tanto necesario limitar rango de búsqueda a 250 MHz.
+Este rango parece ser seguro para las unidades probadas, aunque no está en la 
+especificación del rp2040 (que como se dijo trabaja con un clock de 125 MHz).
+Los cálculos suponen un XOSC ideal de 12 MHz; la tolerancia real debe medirse y compensarse.
+
+\clearpage
+\section{Modelo matemático}
+\subsection{Reloj del PLL}
+De acuerdo al método estándar propuesto por el  SDK como referencia
+\(f_{\mathrm{ref}}=\SI{12}{\mega\hertz}\), un candidato de sistema es:
+\begin{technicalbox}
+\[
+ f_{\mathrm{sys}}=
+ \frac{\num{12000000}\,\mathrm{FBDIV}}
+ {\mathrm{POSTDIV1}\,\mathrm{POSTDIV2}}.
+\]
+\end{technicalbox}
+Sólo se conserva el candidato si
+\(\mathrm{VCO}=\SI{12}{\mega\hertz}\cdot\mathrm{FBDIV}\) está dentro del
+rango del PLL, los postdivisores son válidos,
+\(f_{\mathrm{sys}}\in[125,250]\) MHz y
+\texttt{check\_sys\_clock\_hz()} confirma la misma configuración.
+
+\subsection{Divisor PIO y salida de dos estados}
+El divisor 16.8 del PIO se representa mediante el entero \(N=256D\). Para dos
+instrucciones o estados equivalentes por período:
+\begin{technicalbox}
+\[
+ D=\frac{N}{256},\qquad
+ f_{\mathrm{out}}=\frac{f_{\mathrm{sys}}}{2D}
+                  =\frac{128f_{\mathrm{sys}}}{N}.
+\]
+\end{technicalbox}
+Para cada candidato PLL:
+\begin{technicalbox}
+\[
+ N^\star=\frac{128f_{\mathrm{sys}}}{f_{\mathrm{objetivo}}},
+ \qquad N_0=\lfloor N^\star\rfloor,\qquad N_1=N_0+1.
+\]
+\end{technicalbox}
+Basta evaluar \(N_0\) y \(N_1\) porque \(f_{\mathrm{out}}\) es monótona en
+\(N\). La optimización global escoge la combinación que minimiza
+\[
+ \left|\frac{128f_{\mathrm{sys}}}{N}-f_{\mathrm{objetivo}}\right|.
+\]
+
+\subsection{Pseudocódigo del algoritmo}
+\begin{lstlisting}[style=code]
+best.error = infinito
+para cada FBDIV permitido:
+    VCO = 12 MHz * FBDIV
+    si VCO no es valido: continuar
+    para POSTDIV1=1..7 y POSTDIV2=1..POSTDIV1:
+        si VCO no divide exactamente: continuar
+        f_sys = VCO/(POSTDIV1*POSTDIV2)
+        si f_sys no pertenece a [125,250] MHz: continuar
+        si check_sys_clock_hz(f_sys) falla: continuar
+        N_ideal = 128*f_sys/f_objetivo
+        para N en {floor(N_ideal), ceil(N_ideal)}:
+            si N < 256: continuar
+            f_out = 128*f_sys/N
+            error = f_out - f_objetivo
+            conservar si |error| mejora best
+\end{lstlisting}
+
+\clearpage
+\section{Resultados parciales}
+\scriptsize
+\rowcolors{2}{light}{white}
+\begingroup
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabularx}{\textwidth}{@{}
+  p{0.13\textwidth} p{0.13\textwidth} p{0.21\textwidth}
+  p{0.18\textwidth} R{0.19\textwidth} R{0.12\textwidth}@{}}
+\toprule
+\rowcolor{navy}
+\color{white}Objetivo & \color{white}PLL\_SYS &
+\color{white}PLL (VCO; FB; P1/P2) &
+\color{white}\(N\) y divisor 16.8 &
+\color{white}Salida & \color{white}Error\\
+\midrule
+7,074 MHz & 180,000 MHz & 900 MHz; 75; 5/1 &
+\(N=3257\), \(D=12+185/256\) &
+\num{7073994.473442} Hz & \num{-5.526558} Hz\\
+14,074 MHz & 163,500 MHz & 1308 MHz; 109; 4/2 &
+\(N=1487\), \(D=5+207/256\) &
+\num{14073974.445192} Hz & \num{-25.554808} Hz\\
+28,074 MHz & 130,500 MHz & 1044 MHz; 87; 4/2 &
+\(N=595\), \(D=2+83/256\) &
+\num{28073949.579832} Hz & \num{-50.420168} Hz\\
+\bottomrule
+\end{tabularx}
+\endgroup
+\normalsize
+
+La tabla es el resultado de una búsqueda exhaustiva sobre 246 frecuencias
+PLL configurables distintas. Bajo los supuestos definidos no existe otra
+combinación estática PLL/divisor 16.8 con menor error.
+
+\subsection{Caso \SI{7074000}{\hertz}}
+\[
+\mathrm{VCO}=\SI{12}{\mega\hertz}\cdot75=\SI{900}{\mega\hertz},
+\qquad f_{\mathrm{sys}}=\frac{900}{5\cdot1}=\SI{180}{\mega\hertz}.
+\]
+\[
+N^\star=\frac{128\cdot\num{180000000}}{\num{7074000}}
+=\frac{1280000}{393}=3256.997455470738.
+\]
+\[
+\begin{aligned}
+N_0&=3256,&D_0&=12+\frac{184}{256},&
+f_0&=\SI{7076167.076167076}{\hertz},&
+e_0&=+\SI{2167.076167076}{\hertz},\\
+N_1&=3257,&D_1&=12+\frac{185}{256},&
+f_1&=\SI{7073994.473441818}{\hertz},&
+e_1&=-\SI{5.526558182}{\hertz}.
+\end{aligned}
+\]
+
+\subsection{Caso \SI{14074000}{\hertz}}
+\[
+\mathrm{VCO}=\SI{12}{\mega\hertz}\cdot109=\SI{1308}{\mega\hertz},
+\qquad f_{\mathrm{sys}}=\frac{1308}{4\cdot2}=\SI{163.5}{\mega\hertz}.
+\]
+\[
+N^\star=\frac{128\cdot\num{163500000}}{\num{14074000}}
+=\frac{10464000}{7037}=1486.997299985789.
+\]
+\[
+\begin{aligned}
+N_0&=1486,&D_0&=5+\frac{206}{256},&
+f_0&=\SI{14083445.491251683}{\hertz},&
+e_0&=+\SI{9445.491251682}{\hertz},\\
+N_1&=1487,&D_1&=5+\frac{207}{256},&
+f_1&=\SI{14073974.445191661}{\hertz},&
+e_1&=-\SI{25.554808339}{\hertz}.
+\end{aligned}
+\]
+
+\subsection{Caso \SI{28074000}{\hertz}}
+\[
+\mathrm{VCO}=\SI{12}{\mega\hertz}\cdot87=\SI{1044}{\mega\hertz},
+\qquad f_{\mathrm{sys}}=\frac{1044}{4\cdot2}=\SI{130.5}{\mega\hertz}.
+\]
+\[
+N^\star=\frac{128\cdot\num{130500000}}{\num{28074000}}
+=\frac{2784000}{4679}=594.998931395597.
+\]
+\[
+\begin{aligned}
+N_0&=594,&D_0&=2+\frac{82}{256},&
+f_0&=\SI{28121212.121212121}{\hertz},&
+e_0&=+\SI{47212.121212121}{\hertz},\\
+N_1&=595,&D_1&=2+\frac{83}{256},&
+f_1&=\SI{28073949.579831932}{\hertz},&
+e_1&=-\SI{50.420168067}{\hertz}.
+\end{aligned}
+\]
+
+\clearpage
+\section{Corrección temporal tipo Bresenham}
+Es claro que la tolerancia del método es adecuada para algunas aplicaciones
+(por ejemplo CW) pero no para otras (por ejemplo FT8).
+Se busca un método de compensación calculando una frecuencia media a partir
+de la utilización del método de Bresenham.
+Si se alternan \(N_0=\lfloor N^\star\rfloor\) y \(N_1=N_0+1\), el
+parámetro correcto que debe promediarse es \(N\), porque el período es
+lineal en \(N\):
+\begin{technicalbox}
+\[
+T(N)=\frac{N}{128f_{\mathrm{sys}}}.
+\]
+\end{technicalbox}
+Sea \(r=N^\star-N_0\). Se utiliza \(N_1\) durante la fracción \(r\) de los
+períodos y \(N_0\) durante \(1-r\). Entonces:
+\[
+\overline N=(1-r)N_0+rN_1=N^\star,\qquad
+\overline T=\frac{1}{f_{\mathrm{objetivo}}}.
+\]
+El error medio teórico es cero. No se deben promediar las frecuencias
+\(f(N_0)\) y \(f(N_1)\), porque la magnitud físicamente acumulada es el
+período o la fase.
+
+\scriptsize
+\rowcolors{2}{light}{white}
+\begin{tabularx}{\textwidth}{
+  p{0.13\textwidth} p{0.10\textwidth} p{0.10\textwidth}
+  Y p{0.15\textwidth} p{0.15\textwidth}}
+\toprule
+\rowcolor{navy}
+\color{white}Objetivo & \color{white}\(N_0\) corto &
+\color{white}\(N_1\) largo & \color{white}Uso exacto por patrón &
+\color{white}Longitud & \color{white}Repetición\\
+\midrule
+7,074 MHz & 3256 & 3257 & \(N_1\): 392; \(N_0\): 1 &
+393 períodos & 18.000 Hz\\
+14,074 MHz & 1486 & 1487 & \(N_1\): 7018; \(N_0\): 19 &
+7037 períodos & 2.000 Hz\\
+28,074 MHz & 594 & 595 & \(N_1\): 4674; \(N_0\): 5 &
+4679 períodos & 6.000 Hz\\
+\bottomrule
+\end{tabularx}
+\normalsize
+
+Para 7,074 MHz,
+\[
+N^\star=3256+\frac{392}{393}.
+\]
+La secuencia contiene 392 períodos con \(N=3257\) y uno con \(N=3256\).
+Bresenham distribuye el período corto sin acumular más de una unidad de
+error del acumulador.
+
+\subsection{Acumulador entero}
+\begin{lstlisting}[style=code,language=C]
+// r = r_num/r_den; devuelve N0 o N1 para el proximo periodo
+uint32_t next_N(fracn_t *s) {
+    s->acc += s->r_num;
+    if (s->acc >= s->r_den) {
+        s->acc -= s->r_den;
+        return s->N1;       // periodo ligeramente mas largo
+    }
+    return s->N0;           // periodo ligeramente mas corto
+}
+\end{lstlisting}
+La secuencia exacta es periódica y genera espurias a la
+frecuencia de repetición indicada y sus armónicos. Si el espectro exige
+menor concentración tonal, puede emplearse difusión de error de orden
+superior o aleatorización controlada, conservando el número de
+\(N_0/N_1\) en ventanas largas.
+
+\clearpage
+\section{Implementación en RP2040 PIO}
+\subsection{Limitación}
+\begin{technicalbox}
+Una state machine PIO no puede escribir su propio registro \texttt{CLKDIV}.
+Por tanto, alternar directamente \(N_0/N_1\) no puede implementarse con
+instrucciones PIO puras. Requiere cooperación de CPU/DMA o un generador
+temporal PIO rediseñado que alterne duraciones de estado. Cambiar
+\texttt{CLKDIV} desde una interrupción por cada período sería inviable a
+7--28 MHz y produciría jitter en magnitudes no deseables.
+\end{technicalbox}
+
+\subsection{Arquitectura: PIO + DMA + patrón de tiempo}
+La alternativa posible es no tratar de reescribir \texttt{CLKDIV} en cada ciclo.
+Se fija un reloj de la state machine y se entrega por DMA un flujo de
+decisiones corto/largo generado por el acumulador Bresenham. Cada bit
+determina si el siguiente semiperíodo consume \(K\) o \(K+1\) ticks de la
+state machine. La PIO usa side-set para conmutar el pin y una rama balanceada
+para insertar el tick opcional. El solver debe incluir los ciclos de
+\texttt{out}/\texttt{jmp}/\texttt{nop} en \(K\); no puede reutilizar sin
+cambios la fórmula ideal de dos instrucciones.
+
+Con autopull de 32 bits, incluso 56,148 millones de decisiones de
+semiperíodo por segundo requieren aproximadamente 7,02 MB/s de lectura DMA,
+una carga razonable desde SRAM. El patrón debe residir en SRAM y usar un
+anillo DMA; no debe leerse desde flash mientras otras funciones escriben XIP.
+
+\begin{lstlisting}[style=code]
+; Script PIO un bit por semiperiodo
+.program bresenham_square
+.side_set 1
+.wrap_target
+    out x, 1       side 1 [BASE_H] ; bit=1 agrega un tick
+    jmp !x high_ok side 1
+    nop            side 1
+high_ok:
+    out x, 1       side 0 [BASE_L]
+    jmp !x low_ok  side 0
+    nop            side 0
+low_ok:
+.wrap
+; autopull=32; DMA alimenta TX FIFO desde un buffer circular
+\end{lstlisting}
+
+Este fragmento es por ahora un esqueleto: \texttt{BASE\_H} y
+\texttt{BASE\_L}, junto con los ciclos de las ramas, deben resolverse para
+cada banda de frecuencia, verificando que ambos caminos tengan exactamente
+\(K\) o \(K+1\) ticks. La salida cambia sólo en instrucciones con side-set,
+por lo que la fase queda acotada a un tick de la state machine.
+
+\subsection{Alternativa, dither del registro CLKDIV}
+También puede escribirse una tabla de \(N_0/N_1\) en
+\texttt{PIO\_SMx\_CLKDIV} mediante DMA sincronizado a límites de período.
+Conserva un jitter menor, pero exige un mecanismo adicional de pacing y
+sincronización porque la state machine no genera por sí sola un DREQ de fin
+de período. A 28 MHz, transferir un word por período consume cerca de
+112 MB/s y queda demasiado próximo al límite práctico; por eso no es la
+opción recomendada salvo que se use compresión por rachas y sincronización.
+
+\clearpage
+\section{Solver y flujo de firmware}
+\rowcolors{2}{light}{white}
+\begin{tabularx}{\textwidth}{p{0.16\textwidth}Y p{0.29\textwidth}}
+\toprule
+\rowcolor{navy}
+\color{white}Etapa & \color{white}Responsabilidad &
+\color{white}Fallo seguro\\
+\midrule
+1. solve & Enumera PLL + divisor; no toca hardware. &
+Devuelve \texttt{false} si no hay solución.\\
+2. validate & \texttt{check\_sys\_clock\_hz}; límites VCO/PLL/PIO/error. &
+Rechaza el candidato antes de aplicarlo.\\
+3. apply & Aplica PLL antes de USB y verifica \texttt{clock\_get\_hz}. &
+Vuelve a 250 MHz o reinicia.\\
+4. USB & \texttt{TUDstart} sólo con reloj estable. &
+No reconfigura PLL con USB montado.\\
+5. generate & PIO fijo o PIO+DMA Bresenham. &
+Detiene la salida ante underrun.\\
+\bottomrule
+\end{tabularx}
+
+Para un cambio de frecuencia en ejecución, el solver primero comprueba si el
+PLL actual permite una solución aceptable cambiando sólo el patrón o divisor.
+Si exige otro PLL, se guarda la frecuencia en watchdog scratch y se reinicia;
+reprogramar PLL\_SYS después de enumerar dispositivos como parte del 
+subsistema TinyUSB (que opera concurrentemente) probablemente genere 
+inestabilidades en el firmware.
+
+\subsection{Criterio de selección}
+El primer criterio es error medio \(\leq1\) Hz. Entre candidatos que cumplen,
+se minimizarán, en este orden: cambio respecto del PLL actual, tasa de
+correcciones Bresenham, longitud y tonalidad del patrón, jitter pico y
+consumo. Escoger únicamente el menor error estático puede producir una
+secuencia de corrección espectralmente peor.
+
+\subsection{Validaciones de ejecución}
+\rowcolors{2}{light}{white}
+\begin{tabularx}{\textwidth}{p{0.22\textwidth}Y}
+\toprule
+\rowcolor{navy}
+\color{white}Prueba & \color{white}Condición de aceptación\\
+\midrule
+PLL aplicado & \texttt{clock\_get\_hz(clk\_sys)} coincide con la solución;
+\texttt{clk\_usb} permanece en 48 MHz.\\
+Divisor & \(N\geq256\); INT/FRAC coinciden con el registro \texttt{CLKDIV}.\\
+DMA & Sin underrun durante al menos 10 minutos; contador de fallos igual a cero.\\
+Frecuencia & Medición con contador calibrado; media a menos de 1 Hz del objetivo.\\
+Espectro & Espurias del patrón dentro del límite definido para el transmisor.\\
+USB & CDC/Audio/MSC permanecen enumerados durante arranque y operación.\\
+\bottomrule
+\end{tabularx}
+
+\clearpage
+\section{Precisión absoluta y calibración}
+\rowcolors{2}{light}{white}
+\begin{tabularx}{0.78\textwidth}{p{0.22\textwidth}p{0.22\textwidth}Y}
+\toprule
+\rowcolor{navy}
+\color{white}Frecuencia & \color{white}1 Hz relativo &
+\color{white}Estabilidad mínima de referencia\\
+\midrule
+7,074 MHz & \(1{,}414\times10^{-7}\) & 0,141363 ppm\\
+14,074 MHz & \(7{,}105\times10^{-8}\) & 0,071053 ppm\\
+28,074 MHz & \(3{,}562\times10^{-8}\) & 0,035620 ppm\\
+\bottomrule
+\end{tabularx}
+
+Un cristal de 10 ppm puede introducir aproximadamente 70,74 Hz, 140,74 Hz y
+280,74 Hz, respectivamente. Por lo tanto, la especificación física de
+\(\pm1\) Hz exige calibración frente a una referencia mejor, compensación por
+temperatura o disciplina externa, por ejemplo un GPSDO o TCXO adecuado.
+Bresenham elimina cuantización media; no elimina error de referencia, ruido
+de fase ni deriva térmica.
+Sin embargo en todos los métodos de comunicación objetivo de éste proyecto
+importa mas el error relativo que el error absoluto.
+
+\section*{Conclusiones}
+\addcontentsline{toc}{section}{Conclusiones}
+\begin{technicalbox}
+El análisis anterior requiere implementar primero el solver exhaustivo con las
+validaciones recomendadas en el PICO-SDK para a continuación
+registrar las mejores soluciones estáticas y confirmar los números de esta
+nota. 
+Finalmente implementar el generador PIO+DMA con acumulador de fase, medir
+espurias y sólo entonces integrarlo al firmware USB. Dejar de reconfigurar
+PLL\_SYS con TinyUSB montado; aplicar el PLL seleccionado antes de
+\texttt{TUDstart()} o reiniciar ante cambios que exijan otro PLL.
+\end{technicalbox}
+
+Si bien se estima como necesario una precisión de frecuencia de alrededor de
+1 Hz no puede garantizarse físicamente sólo
+con búsqueda PLL y divisor PIO. Sí puede lograrse error medio de cuantización
+menor que 1 Hz ---incluso cero teórico--- mediante modulación temporal, pero
+la precisión absoluta requiere una referencia calibrada y validación
+espectral, sin embargo se comentó en la sección anterior que no es tan 
+importante en los casos de uso.
+
+\section*{Referencias}
+\begin{enumerate}
+\item Raspberry Pi Ltd., \emph{RP2040 Datasheet}, secciones de PLL, clocks y PIO.
+\item Raspberry Pi Pico SDK, \texttt{hardware\_clocks}:
+\texttt{check\_sys\_clock\_hz()}, \texttt{set\_sys\_clock\_pll()} y
+\texttt{clock\_get\_hz()}.
+\item Raspberry Pi Pico SDK, \texttt{hardware\_pio}: divisor de clock 16.8 y
+\texttt{pio\_sm\_set\_clkdiv\_int\_frac8()}.
+\item TinyUSB / Pico SDK: mantener \texttt{clk\_usb} independiente y aplicar
+el PLL de sistema antes de enumerar el dispositivo.
+\item Código del proyecto Firmware PixiePico, módulos \texttt{quad.c},
+\texttt{quad.h} y checkpoint del 31-08-2026.
+\end{enumerate}
+\end{document}

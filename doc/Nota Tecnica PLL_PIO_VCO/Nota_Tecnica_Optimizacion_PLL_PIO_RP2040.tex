@@ -1,0 +1,367 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{siunitx}
+\usepackage{enumitem}
+
+\geometry{margin=2.4cm}
+\hypersetup{colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,citecolor=blue!55!black}
+\sisetup{output-decimal-marker={,},group-separator={.},group-minimum-digits=4}
+
+\definecolor{codebg}{RGB}{246,247,249}
+\definecolor{codegreen}{RGB}{25,110,55}
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!65!black}\bfseries,
+  commentstyle=\color{codegreen},
+  stringstyle=\color{red!55!black},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  showstringspaces=false,
+  tabsize=4
+}
+
+\title{\textbf{Optimización conjunta del PLL\_SYS y del divisor PIO\\para síntesis de frecuencias en el RP2040}}
+\author{Proyecto PixiePico Firmware}
+\date{4 de septiembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Esta nota presenta un método discreto y exhaustivo para seleccionar conjuntamente
+\texttt{REFDIV}, \texttt{FBDIV}, \texttt{POSTDIV1}, \texttt{POSTDIV2} y el divisor
+fraccional Q16.8 de una máquina de estados PIO del RP2040. El objetivo es minimizar
+el error absoluto de una salida cuadrada cuya frecuencia nominal puede variar. Se
+considera un cristal de \SI{12}{MHz}, una instrucción PIO para el estado alto y otra
+para el estado bajo, y el intervalo experimental
+\(\SI{125}{MHz}\le f_{\mathrm{SYS}}\le\SI{250}{MHz}\). Se presentan resultados para
+\SI{7.074}{MHz}, \SI{14.074}{MHz} y \SI{28.074}{MHz}.
+\end{abstract}
+
+\section{Planteo del problema}
+
+El oscilador utiliza \texttt{PLL\_SYS} como fuente de reloj de una máquina de
+estados PIO. El programa PIO ejecuta dos estados por cada período de salida:
+uno mantiene la señal alta y el siguiente la mantiene baja. Por lo tanto,
+si \(D\) es el divisor de reloj de la PIO,
+\begin{equation}
+ f_{\mathrm{out}}=\frac{f_{\mathrm{SYS}}}{2D}.
+ \label{eq:pout}
+\end{equation}
+
+El divisor PIO se representa en formato Q16.8:
+\begin{equation}
+ D=d_{\mathrm{int}}+\frac{d_{\mathrm{frac}}}{256}
+  =\frac{N}{256},
+ \qquad
+ N=256d_{\mathrm{int}}+d_{\mathrm{frac}},
+ \label{eq:pio_div}
+\end{equation}
+donde \(0\le d_{\mathrm{frac}}\le255\). Sustituyendo
+\eqref{eq:pio_div} en \eqref{eq:pout}:
+\begin{equation}
+ f_{\mathrm{out}}=\frac{128f_{\mathrm{SYS}}}{N}.
+ \label{eq:pout_n}
+\end{equation}
+
+\section{Modelo del PLL del RP2040}
+
+Para una referencia externa \(f_{\mathrm{XOSC}}\), el PLL genera
+\begin{align}
+ f_{\mathrm{ref}} & = \frac{f_{\mathrm{XOSC}}}{REFDIV}, \\
+ f_{\mathrm{VCO}} & = f_{\mathrm{ref}}FBDIV, \\
+ f_{\mathrm{SYS}} & =
+ \frac{f_{\mathrm{VCO}}}{POSTDIV1\,POSTDIV2}.
+ \label{eq:pll}
+\end{align}
+
+La documentación del RP2040 establece las siguientes restricciones del PLL
+\cite{rp2040datasheet}:
+\begin{align}
+ f_{\mathrm{ref}} &\ge \SI{5}{MHz}, \\
+ \SI{750}{MHz}\le f_{\mathrm{VCO}}&\le\SI{1600}{MHz}, \\
+ 16\le FBDIV&\le320, \\
+ 1\le POSTDIV1,POSTDIV2&\le7.
+\end{align}
+Se adopta además \(POSTDIV1\ge POSTDIV2\), tal como recomienda la documentación.
+
+Con \(f_{\mathrm{XOSC}}=\SI{12}{MHz}\), la primera restricción implica
+\begin{equation}
+ \frac{12}{REFDIV}\ge5
+ \quad\Longrightarrow\quad
+ \boxed{REFDIV\in\{1,2\}}.
+\end{equation}
+Por consiguiente, fijar \texttt{REFDIV=1} no era una condición necesaria: era
+solamente una reducción del espacio de búsqueda. Permitir \texttt{REFDIV=2}
+duplica la resolución disponible en la síntesis del VCO y genera soluciones
+adicionales válidas.
+
+El intervalo \SIrange{125}{250}{MHz} para \(f_{\mathrm{SYS}}\) es un requisito
+experimental del proyecto PixiePico. No debe confundirse con la frecuencia
+nominal garantizada por la especificación del RP2040: la zona superior del
+intervalo constituye overclocking y debe validarse sobre el hardware concreto.
+
+\section{Función objetivo conjunta}
+
+Combinando \eqref{eq:pout_n} y \eqref{eq:pll} se obtiene
+\begin{equation}
+ \boxed{
+ f_{\mathrm{out}}=
+ \frac{128f_{\mathrm{XOSC}}FBDIV}
+ {REFDIV\,POSTDIV1\,POSTDIV2\,N}}
+ \label{eq:combined}
+\end{equation}
+
+Para una frecuencia objetivo \(f_T\), el problema consiste en encontrar la
+tupla entera
+\begin{equation}
+ (REFDIV,FBDIV,POSTDIV1,POSTDIV2,N)
+\end{equation}
+que minimiza
+\begin{equation}
+ E=\left|f_{\mathrm{out}}-f_T\right|,
+ \label{eq:objective}
+\end{equation}
+sujeta a todas las restricciones anteriores y a
+\begin{equation}
+ \SI{125}{MHz}\le f_{\mathrm{SYS}}\le\SI{250}{MHz}.
+\end{equation}
+
+No es apropiado optimizar primero el PLL y luego la PIO de manera independiente.
+Una frecuencia \(f_{\mathrm{SYS}}\) que no sea la más cercana a un valor elegido
+a priori puede producir un error final menor al combinarse con cierto valor
+entero \(N\).
+
+\section{Algoritmo de búsqueda exhaustiva}
+
+El espacio de parámetros es discreto y pequeño. Por ello, una enumeración
+exhaustiva entrega el óptimo global dentro del modelo, sin depender de semillas,
+gradientes ni mínimos locales.
+
+Para cada cuádrupla válida de parámetros PLL se calcula
+\begin{equation}
+ N^*=\frac{128f_{\mathrm{SYS}}}{f_T}.
+\end{equation}
+Como el error es monótono a cada lado de \(N^*\), basta evaluar
+\(\lfloor N^*\rfloor\) y \(\lceil N^*\rceil\). No es necesario recorrer los
+más de dieciséis millones de valores posibles del registro PIO.
+
+Se recomienda usar aritmética racional o enteros suficientemente anchos. El uso
+prematuro de \texttt{float} puede cambiar el orden de candidatos con errores muy
+próximos.
+
+\begin{lstlisting}[language=Python,caption={Implementación de referencia del optimizador}]
+from fractions import Fraction
+
+XOSC = 12_000_000
+SYS_MIN = 125_000_000
+SYS_MAX = 250_000_000
+VCO_MIN = 750_000_000
+VCO_MAX = 1_600_000_000
+
+def optimize(target_hz):
+    best = None
+
+    for refdiv in range(1, 64):
+        ref = Fraction(XOSC, refdiv)
+        if ref < 5_000_000:
+            continue
+
+        for fbdiv in range(16, 321):
+            vco = ref * fbdiv
+            if not (VCO_MIN <= vco <= VCO_MAX):
+                continue
+            if ref > vco / 16:
+                continue
+
+            for postdiv1 in range(1, 8):
+                for postdiv2 in range(1, postdiv1 + 1):
+                    sys = vco / (postdiv1 * postdiv2)
+                    if not (SYS_MIN <= sys <= SYS_MAX):
+                        continue
+
+                    ideal_n = 128 * sys / target_hz
+                    n0 = ideal_n.numerator // ideal_n.denominator
+
+                    for n in {n0, n0 + 1}:
+                        if not (256 <= n <= 0xFFFFFF):
+                            continue
+
+                        actual = 128 * sys / n
+                        signed_error = actual - target_hz
+
+                        # Mayor VCO como desempate: menor jitter.
+                        key = (abs(signed_error), -vco)
+                        candidate = (key, refdiv, fbdiv,
+                                     postdiv1, postdiv2,
+                                     n, vco, sys,
+                                     actual, signed_error)
+
+                        if best is None or key < best[0]:
+                            best = candidate
+
+    return best
+\end{lstlisting}
+
+\section{Resultados}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Configuraciones óptimas encontradas mediante búsqueda exhaustiva.}
+\label{tab:results}
+\begin{tabular}{@{}rrrrrrrr@{}}
+\toprule
+\(f_T\) (Hz) & REF & FB & PD1 & PD2 & \(N\) & \(f_{\mathrm{SYS}}\) (Hz) & Error (Hz) \\
+\midrule
+7.074.000  & 2 & 263 & 7 & 1 & 4079 & 225.428.571,429 & +2,731762 \\
+14.074.000 & 2 & 211 & 3 & 2 & 1919 & 211.000.000,000 & -3,126628 \\
+28.074.000 & 2 & 261 & 4 & 3 & 595  & 130.500.000,000 & -50,420168 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Caso \(f_T=\SI{7.074}{MHz}\)}
+
+La mejor tupla es
+\begin{equation}
+ \boxed{(REFDIV,FBDIV,POSTDIV1,POSTDIV2,N)=(2,263,7,1,4079)}.
+\end{equation}
+De ella se obtiene
+\begin{align}
+ f_{\mathrm{ref}} &= \frac{\SI{12}{MHz}}{2}=\SI{6}{MHz},\\
+ f_{\mathrm{VCO}} &= \SI{6}{MHz}\times263=\SI{1578}{MHz},\\
+ f_{\mathrm{SYS}} &= \frac{\SI{1578}{MHz}}{7}
+ =\SI{225.428571428571}{MHz}.
+\end{align}
+El divisor PIO es
+\begin{equation}
+ D=\frac{4079}{256}=15+\frac{239}{256}=15{,}93359375.
+\end{equation}
+Finalmente,
+\begin{align}
+ f_{\mathrm{out}} &= \SI{7074002.731762}{Hz},\\
+ \Delta f &= \boxed{+\SI{2.731762}{Hz}},\\
+ \varepsilon &= \boxed{+0{,}386169\ \mathrm{ppm}}.
+\end{align}
+
+Como comprobación, \SI{233}{MHz} también resulta sintetizable cuando se permite
+\texttt{REFDIV=2}: \((2,233,3,2)\) produce un VCO de \SI{1398}{MHz} y
+\(f_{\mathrm{SYS}}=\SI{233}{MHz}\). Con \(N=4216\), su error es
+\(+\SI{3.795066}{Hz}\), ligeramente mayor que el óptimo global.
+
+\subsection{Caso \(f_T=\SI{14.074}{MHz}\)}
+
+La mejor tupla es
+\begin{equation}
+ \boxed{(REFDIV,FBDIV,POSTDIV1,POSTDIV2,N)=(2,211,3,2,1919)}.
+\end{equation}
+Los relojes y el divisor PIO son
+\begin{align}
+ f_{\mathrm{ref}} &= \SI{6}{MHz},\\
+ f_{\mathrm{VCO}} &= \SI{1266}{MHz},\\
+ f_{\mathrm{SYS}} &= \frac{\SI{1266}{MHz}}{6}=\SI{211}{MHz},\\
+ D &= \frac{1919}{256}=7+\frac{127}{256}=7{,}49609375.
+\end{align}
+La salida resultante es
+\begin{align}
+ f_{\mathrm{out}} &= \frac{128(211000000)}{1919}
+ =\SI{14073996.873372}{Hz},\\
+ \Delta f &= \boxed{-\SI{3.126628}{Hz}},\\
+ \varepsilon &= \boxed{-0{,}222156\ \mathrm{ppm}}.
+\end{align}
+
+\subsection{Caso \(f_T=\SI{28.074}{MHz}\)}
+
+Una de las tuplas óptimas es
+\begin{equation}
+ \boxed{(REFDIV,FBDIV,POSTDIV1,POSTDIV2,N)=(2,261,4,3,595)}.
+\end{equation}
+Los valores asociados son
+\begin{align}
+ f_{\mathrm{ref}} &= \SI{6}{MHz},\\
+ f_{\mathrm{VCO}} &= \SI{1566}{MHz},\\
+ f_{\mathrm{SYS}} &= \frac{\SI{1566}{MHz}}{12}=\SI{130.5}{MHz},\\
+ D &= \frac{595}{256}=2+\frac{83}{256}=2{,}32421875.
+\end{align}
+La frecuencia obtenida es
+\begin{align}
+ f_{\mathrm{out}} &= \frac{128(130500000)}{595}
+ =\SI{28073949.579832}{Hz},\\
+ \Delta f &= \boxed{-\SI{50.420168}{Hz}},\\
+ \varepsilon &= \boxed{-1{,}795974\ \mathrm{ppm}}.
+\end{align}
+
+Existen varias tuplas con el mismo error para este objetivo. Por ejemplo, el
+mismo VCO de \SI{1566}{MHz} con \((POSTDIV1,POSTDIV2,N)=(6,2,595)\),
+\((5,2,714)\) o \((7,1,1020)\) conserva la misma razón final. La selección entre
+ellas puede realizarse según frecuencia del sistema, consumo y compatibilidad
+con el resto del firmware.
+
+\section{Interpretación y limitaciones}
+
+\begin{enumerate}[leftmargin=*]
+ \item La búsqueda obtiene el óptimo global \emph{estático} dentro de las
+ restricciones declaradas. No garantiza error cero porque todos los divisores
+ relevantes son enteros o racionales con granularidad finita.
+ \item El valor nominal calculado no incluye tolerancia, deriva térmica ni
+ envejecimiento del cristal de \SI{12}{MHz}. En la práctica, varios ppm del
+ cristal pueden superar el error matemático residual del algoritmo.
+ \item Una frecuencia racional como \(\SI{1578}{MHz}/7\) es físicamente válida.
+ Sin embargo, las API del SDK que almacenan frecuencias en hertz enteros pueden
+ reportarla redondeada. La configuración del PLL debe realizarse a partir de
+ sus parámetros exactos, no reconstruirse desde el entero redondeado.
+ \item Cambiar \texttt{PLL\_SYS} durante la ejecución afecta CPU, PIO y los
+ periféricos derivados de ese reloj. Deben revisarse temporizadores, baud rates,
+ flash y cualquier lógica que suponga una frecuencia fija. El PLL USB es
+ independiente, aunque el firmware USB puede verse afectado indirectamente si
+ el cambio no se secuencia correctamente.
+ \item Para errores menores que el óptimo estático puede alternarse entre dos
+ divisores PIO adyacentes en una proporción calculada. Esto reduce el error
+ promedio, pero introduce modulación determinista y componentes laterales; por
+ ello constituye otro problema de diseño y no debe confundirse con una
+ frecuencia estática exacta.
+\end{enumerate}
+
+\section{Recomendación de implementación}
+
+El firmware debería conservar los cinco parámetros del candidato ganador, no
+solo \(f_{\mathrm{SYS}}\) y \(D\). La estructura de resultado debe incluir como
+mínimo \texttt{refdiv}, \texttt{fbdiv}, \texttt{postdiv1}, \texttt{postdiv2},
+\texttt{pio\_div\_int}, \texttt{pio\_div\_frac}, frecuencia calculada y error.
+Antes de aplicar el resultado, debe verificarse nuevamente cada restricción y
+configurar el PLL mediante sus parámetros exactos.
+
+Para el primer ensayo de hardware se recomienda comenzar con
+\SI{14.074}{MHz}, porque su solución usa un \(f_{\mathrm{SYS}}\) entero de
+\SI{211}{MHz} y ofrece el menor error relativo de los tres casos. Después debe
+medirse la salida con un contador referenciado; sin esa medición, optimizar por
+debajo de un ppm es precisión matemática, no necesariamente precisión física.
+
+\begin{thebibliography}{9}
+\bibitem{rp2040datasheet}
+Raspberry Pi Ltd., \emph{RP2040 Datasheet: A microcontroller by Raspberry Pi},
+sección 2.18, ``PLL'', versión de febrero de 2025. Disponible en:
+\url{https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf}.
+
+\bibitem{picosdkpll}
+Raspberry Pi Ltd., \emph{Pico SDK---hardware\_pll}, implementación de
+\texttt{pll\_init}. Disponible en:
+\url{https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_pll/pll.c}.
+\end{thebibliography}
+
+\end{document}
