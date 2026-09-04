@@ -13,6 +13,78 @@ bajo la licencia Creative Commons Attribution-ShareAlike 4.0
 International (CC BY-SA 4.0).
 
 */
+/*----------------------------------------------------------------------------
+ * Version 1.0
+ * - Initial release
+ * - Basic TX/RX funcionality
+ * - Basic board management and control
+ * - Software VCO
+ * - USB Audio
+ *----------------------------------------------------------------------------
+ */
+/*---------------------------------------------------------------------------------------*
+ * This library receives the considerable learning made when developing the
+ * ADX-rp2040 package and specially the RDX package which provides support 
+ * for the rp2040 processor albeit using a cross platform compatibility layer
+ * allowing the usage of the Arduino libraries and IDE to develop for other boards
+ * in general and the rp2040 in particular, repositories for these projects are
+ * 
+ *     ADX-rp2040    https://github.com/lu7did/ADX-rp2040
+ *     RDX           https://github.com/lu7did/RDX-rp2040
+ *---------------------------------------------------------------------------------------*
+ */
+ /*----------------------------------------------------------------------------
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the CC BY-AS License.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ */
+
+/*------------------------------------------------------------------------------------------------*
+ |  IDENTIFICATION DIVISION.                                                                      |
+ |  (just a programmer's joke)                                                                    |
+ *------------------------------------------------------------------------------------------------*/
+#define PROGNAME "PixiePico"
+#define AUTHOR "Dr. Pedro E. Colla (LU7DZ)"
+#define VERSION  "1.0"
+#define BUILD     "00"
+
+#define BOOL2CHAR(x)  (x==true ? "True" : "False")
+//*==============================================================================================*
+//*                                  Build environment                                           *
+//*==============================================================================================*
+#define  RP2040Z  1
+
+//#define  PICO    1
+//#define   PICOW  1 
+
+//*==============================================================================================*
+//*                                Configuration definitions                                     *
+//*==============================================================================================*
+#define  DEBUG      1
+
+//#define  EEPROM     1   
+//#define  WAITSERIAL 1
+//#define  FS         1
+
+//*==============================================================================================*
+//*                                Configuration consistency rules                               *
+//*==============================================================================================*
+
+#ifndef DEBUG
+#undef WAITSERIAL
+#undef RTC
+#endif //!DEBUG
+
+//*==============================================================================================*
+//*                                  Includes and Source Libraries                               *
+//*==============================================================================================*
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,13 +92,74 @@ International (CC BY-SA 4.0).
 #include "hardware/clocks.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
-#include "pico/stdio_usb.h"
+#include "hardware/adc.h"
+//#include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "ddsvco.h"
 #include "rotary_encoder.h"
 #include "ssd1306.h"
 #include "ws2812.pio.h"
 #include <inttypes.h>
+#include "PixiePico.h"
+#include "usb_audio.h"
+#include "tusb.h"
+#include "bsp/board_api.h"
+//*==============================================================================================*
+//*                             Macros and Structures                                            *
+//*==============================================================================================*
+#ifdef DEBUG
+#define cdc_printf(fmt, ...)                                      \
+    do {                                                          \
+        int _cdc_len = snprintf(hi, sizeof(hi),                    \
+                                "[%s]: " fmt,                      \
+                                __func__, ##__VA_ARGS__);          \
+        if (_cdc_len > 0 && tud_cdc_n_connected(0)) {             \
+            if (_cdc_len >= (int)sizeof(hi))                       \
+                _cdc_len = (int)sizeof(hi) - 1;                    \
+            tud_cdc_n_write(0, hi, (uint32_t)_cdc_len);            \
+            tud_cdc_n_write_flush(0);                              \
+        }                                                         \
+    } while (0)
+#else  //!DEBUG
+#define cdc_printf(...) (void)0
+#endif //DEBUG    
+//*---------------------------------------------------------------------------------------*
+//* Define a 128 bytes storage area for the run time configuration 
+//*---------------------------------------------------------------------------------------*
+typedef struct {
+    uint8_t   ID;
+    uint8_t   mode;
+    uint8_t   band;
+    uint8_t   iVfo;
+    uint8_t   iShift;
+    uint8_t   iStep;
+    uint32_t  freq;
+    uint8_t   bw;
+    uint32_t  frqFT8;
+    uint8_t   reserved[115];
+} PixiePico_t;
+
+//*==============================================================================================*
+//*                             Constants and parameters                                         *
+//*==============================================================================================*
+#define AUDIOSAMPLING    48000            // USB Audio sampling frequency (fixed)
+#define PLL_SYS_MHZ        250            // RP2040 System Clock (MHz)  
+#define PLL_SYS_MHZ_PLUS   250            // RP2040 System Clock (MHz) --OVERCLOCK--
+#define GEN_FRQ_HZ     7074000L           // Generator Frequency (in Hz)
+#define FT8_BASE_HZ       1000L           // FT8 base frequency (in Hz) <Not used>
+#define DEFAULT_MODE         3            // Default mode FT8
+#define DEFAULT_BAND         0            // Default band 40m
+#define DEFAULT_VFO          0            // Default Vfo A
+#define DEFAULT_SHIFT        0
+#define DEFAULT_STEP         0
+#define NBANDS               3
+#define NMODES               5
+
+
+
+PixiePico_t p;                      //*--- System Variables
+char hi[128];
+
 
 #define OLED_I2C i2c0
 #define OLED_SDA_PIN 0
@@ -50,6 +183,12 @@ International (CC BY-SA 4.0).
 #define LONGPUSH 2000000
 #define MAXMENU  5
 
+#define pin_A0               26U          //pin for ADC (A2)
+
+//*==============================================================================================*
+//*                                  Global Memory Areas                                         *
+//*==============================================================================================*
+
 static ssd1306_t oled;
 static bool oled_available = false;
 static long current_frequency_hz = 7074000L;
@@ -65,27 +204,75 @@ bool menuMode=false;
 bool editMode=false;
 uint8_t menuItem=0;
 
-uint8_t  iBand=0;   //Default band is 40m
-uint8_t  iMode=3;   //Default mode is FT8
-uint8_t  iVfo=0;    //Default VFO is A
-uint16_t iShift=0;  //Default Shift is 600 Hz
-uint16_t iStep=0;   //Default Step is 10 Hz
+uint8_t  iBand=DEFAULT_BAND;   //Default band is 40m
+uint8_t  iMode=DEFAULT_MODE;   //Default mode is FT8
+uint8_t  iVfo=DEFAULT_VFO;    //Default VFO is A
+uint16_t iShift=DEFAULT_SHIFT;  //Default Shift is 600 Hz
+uint16_t iStep=DEFAULT_STEP;   //Default Step is 10 Hz
+uint32_t frqFT8=FT8_BASE_HZ;
+
 uint8_t  iLED=0;
 bool     iTX=false;
 bool     iWatch=false;
 
 uint32_t fStep=ENCODER_FREQUENCY_STEP_HZ;
 
-#define NBANDS 3
-#define NMODES 5
 long unsigned int Bands[NBANDS][NMODES] = {
               { 7038600, 7078000, 7047500, 7074000,7030000},
               {14095600,14078000,14080000,14074000,14020000},
               {28124600,28078000,28180000,28074000,28020000}};
 
+
+
+//*--- for ADC offset at transceiver
+int32_t adc_offset = 0;   
+uint64_t audio_freq_prev=0.0;
+int Tx_Status = 0; // 0=RX, 1=TX
+int Tx_Start = 0;  // 0=RX, 1=TX
+int not_TX_first = 0;
+uint32_t Tx_last_mod_time;
+uint32_t Tx_last_time;
+
+//*--- for determination of Audio signal frequency 
+int16_t mono_prev=0;  
+int16_t mono_preprev=0;  
+float delta_prev=0;
+int16_t sampling=0;
+int16_t cycle=0;
+uint32_t cycle_frequency[136];
+
+//*--- for USB Audio
+int16_t monodata[CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ / 4];
+int16_t adc_data[CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ / 2];
+int16_t pcCounter;
+
+int audio_read_number=0;
+uint32_t push_last_time;  // to detect the long puch for frequency change by push switch
+/*---- Define RTC structure but do not expect a RTC to be present */
+
+datetime_t tcpu = {
+    .year  = 2026,
+    .month = 01,
+    .day   = 01,
+    .dotw  = 4,  // 0 is Sunday, so 4 is Thursday
+    .hour  = 0,
+    .min   = 00,
+    .sec   = 00
+};
+
+static volatile bool cdc_dtr = false;
+
+#ifdef FS
+uint8_t JSON[2048];
+PixiePico_t fs;
+#endif //FS
+int32_t adc(); 
+
+
 /*---
 Wait for the Serial Monitor window to be opened
 */              
+/*
 static void wait_for_usb_monitor(void) {
     for (int attempt = 0; attempt < 150; ++attempt) {
         if (stdio_usb_connected()) {
@@ -94,7 +281,22 @@ static void wait_for_usb_monitor(void) {
         sleep_ms(100);
     }
 }
+*/
+static void wait_for_usb_monitor(void)
+{
+    absolute_time_t deadline =
+        make_timeout_time_ms(15000);
 
+    while (!time_reached(deadline)) {
+        tud_task_ext(0, false);
+
+        if (tud_cdc_n_connected(0)) {
+            return;
+        }
+
+        sleep_ms(1);
+    }
+}
 /*--- 
 Change color of built in LED
 */
@@ -573,12 +775,15 @@ void updateMenu(uint8_t m, int s) {
         current_frequency_hz = 0;
     }
     displayFreq(current_frequency_hz);
-    vco_frequency_pending = true;
-    vco_frequency_deadline =
-        delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
-    printf("Encoder: %+d; frecuencia: %ld Hz\r\n",
-           direction, current_frequency_hz);
-    fflush(stdout);
+    if (vco_available) {
+       vco_frequency_pending = true;
+       vco_frequency_deadline =
+       delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
+       cdc_printf("Encoder: %+d; frecuencia: %ld Hz\r\n",direction, current_frequency_hz);
+    } else {
+       cdc_printf("VCO not available\n"); 
+    }   
+    //fflush(stdout);
 }
 
 
@@ -587,22 +792,22 @@ void updateMenu(uint8_t m, int s) {
 */
 void SWclick(bool pressed) {
 
-    printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
-    fflush(stdout);
+    cdc_printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
+    //fflush(stdout);
 
     if(pressed) {
       timerSW = time_us_32();
     } else {
       uint32_t lapSW=time_us_32()-timerSW;
       if (lapSW>LONGPUSH) {
-        printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
+        cdc_printf("Lap: %" PRIu32 " <longPUSH>\n", lapSW);
 
         if (!menuMode) {            //It is on main panel, so switch to Menu Mode
            menuMode=true;
            editMode=false;
            displayMenu(menuItem);
-           printf("Switch to Menu Mode\n");
-           fflush(stdout);
+           cdc_printf("Switch to Menu Mode\n");
+           //fflush(stdout);
            return;
         }
 
@@ -610,16 +815,16 @@ void SWclick(bool pressed) {
             menuMode=false;
             editMode=false;
             displayPanel();
-            printf("Switch to Panel Mode\n");
+            cdc_printf("Switch to Panel Mode\n");
             return;
         }
         editMode=true;
         displayMenu(menuItem);
-        printf("Switch to Edit Mode\n");
-        fflush(stdout);
+        cdc_printf("Switch to Edit Mode\n");
+        //fflush(stdout);
 
       } else {
-        printf("Lap: %" PRIu32 " <shortPUSH>\n", lapSW);
+        cdc_printf("Lap: %" PRIu32 " <shortPUSH>\n", lapSW);
 
         if (!menuMode) {
 
@@ -630,18 +835,36 @@ void SWclick(bool pressed) {
            menuMode=false;
            editMode=false;
            displayPanel();
-           printf("Switch back to Panel\n");
-           fflush(stdout);
+           cdc_printf("Switch back to Panel\n");
+           //fflush(stdout);
            return;
         }
         editMode=false;
         displayMenu(menuItem);
-        printf("Switch back to Menu\n");
-        fflush(stdout);
+        cdc_printf("Switch back to Menu\n");
+        //fflush(stdout);
         return;
 
       }  
     }
+}
+
+//*----------------------------------------------------------------------------*/
+//*  I/O for the ADX board controls (LED, switches and jumpers            */
+//*----------------------------------------------------------------------------*/
+void PixiePicoSetup(){
+
+    //*--- GPIO setting for the ADC control (receiver) 
+    gpio_init(pin_A0);
+    gpio_set_dir(pin_A0, GPIO_IN); //ADC input pin
+  
+    //*--- End of ADX control board initialization
+    cdc_printf("PixiePico Board initialized\n");
+    
+}
+void setTX(bool t)
+{
+    //#----- TEST Dummy --- Switch on and off
 }
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 /*                               MAIN                                      */
@@ -649,39 +872,82 @@ void SWclick(bool pressed) {
 
 int main(void) {
 
+    /*
     uint32_t pending_frequency_hz;
     if (ddsvco_take_pending_frequency(&pending_frequency_hz)) {
         current_frequency_hz = (long)pending_frequency_hz;
     }
 
-    /*--- This structure hold he solution for the VCO */
     const ddsvco_config_t vco_config = {
         .pio = pio1,
         .state_machine = -1,
         .output_gpio = DDSVCO_OUTPUT_GPIO,
         .sys_clk_min_hz = DDSVCO_SYS_CLK_MIN_HZ,
         .sys_clk_max_hz = DDSVCO_SYS_CLK_MAX_HZ,
-        /* Cambio en vivo: no reinicia ni reenumera el puerto USB CDC. */
         .reboot_on_pll_change = false,
     };
 
-    /*--- Perform initialization of the VCO subsystem */
     vco_available = ddsvco_init(&vco, &vco_config) &&
                     ddsvco_solve(&vco, (uint32_t)current_frequency_hz,
                               &vco_solution) &&
                     ddsvco_start(&vco, &vco_solution);
+
+    */
+    vco_available = false;                
     /*--- Start the other subsystems*/
 
-    stdio_init_all();
-
-    /*--- Initialize another PIO for the built in LED*/
     const PIO pio = pio0;
     const uint state_machine = 0;
     const uint pio_offset = pio_add_program(pio, &ws2812_program);
-    ws2812_program_init(pio, state_machine, pio_offset,
-                        PICO_DEFAULT_WS2812_PIN,
-                        WS2812_FREQUENCY_HZ, false);
 
+    ws2812_program_init(
+        pio,
+        state_machine,
+        pio_offset,
+        PICO_DEFAULT_WS2812_PIN,
+        WS2812_FREQUENCY_HZ,
+        false
+    );
+
+    /* Rojo: se alcanzó main(), pero USB todavía no fue inicializado. */
+    set_led(pio, state_machine, 24, 0, 0);
+
+    /*
+    sleep_ms(1000);
+    tusb_rhport_init_t dev_init = {
+      .role  = TUSB_ROLE_DEVICE,
+      .speed = TUSB_SPEED_AUTO
+    };
+
+    tusb_init(BOARD_TUD_RHPORT, &dev_init);
+
+    sleep_ms(500);
+    stdio_init_all();
+    */
+
+
+
+    tusb_rhport_init_t dev_init = {
+        .role  = TUSB_ROLE_DEVICE,
+        .speed = TUSB_SPEED_FULL
+    };
+
+
+    set_led(pio, state_machine, 24, 0, 0);  // rojo: antes de TinyUSB
+
+bool usb_ok = tusb_init(BOARD_TUD_RHPORT, &dev_init);
+
+if (usb_ok) {
+    set_led(pio, state_machine, 24, 24, 0); // amarillo: init correcta
+} else {
+    set_led(pio, state_machine, 0, 0, 24);  // azul: init devolvió false
+}
+
+    
+    wait_for_usb_monitor();
+    set_led(pio, state_machine, 0, 0, 24);  // verde
+    /*--- Initialize another PIO for the built in LED*/
+    
     /*--- Define I/O mapping for I2C subsystem*/                    
     i2c_init(OLED_I2C, OLED_I2C_FREQUENCY_HZ);
     gpio_set_function(OLED_SDA_PIN, GPIO_FUNC_I2C);
@@ -713,28 +979,28 @@ int main(void) {
 
     wait_for_usb_monitor();
 
-    printf("testVCO iniciado en Waveshare RP2040-Zero\r\n");
-    printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
-    printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
+    cdc_printf("testVCO iniciado en Waveshare RP2040-Zero\r\n");
+    cdc_printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
+    cdc_printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
-    printf("OLED %s; pantalla FT8/VFOA/TX, frecuencia 28074.00\r\n",
+    cdc_printf("OLED %s; pantalla FT8/VFOA/TX, frecuencia 28074.00\r\n",
            oled_available ? "detectado" : "NO detectado");
-    printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
+    cdc_printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
            ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
     if (vco_available) {
-        printf("VCO: GPIO%u, objetivo=%" PRIu32
+        cdc_printf("VCO: GPIO%u, objetivo=%" PRIu32
                " Hz, PLL_SYS=%.6f Hz\r\n",
                DDSVCO_OUTPUT_GPIO, vco_solution.target_hz,
                (double)vco_solution.sys_clk_num /
                    (double)vco_solution.sys_clk_den);
-        printf("VCO: REFDIV=%u, FBDIV=%u, POSTDIV=%u/%u, VCO=%" PRIu32
+        cdc_printf("VCO: REFDIV=%u, FBDIV=%u, POSTDIV=%u/%u, VCO=%" PRIu32
                " Hz\r\n",
                (unsigned)vco_solution.pll_refdiv,
                (unsigned)vco_solution.pll_fbdiv,
                (unsigned)vco_solution.pll_postdiv1,
                (unsigned)vco_solution.pll_postdiv2,
                vco_solution.pll_vco_hz);
-        printf("VCO: CLKDIV=%u+%u/256, salida=%.6f Hz, "
+        cdc_printf("VCO: CLKDIV=%u+%u/256, salida=%.6f Hz, "
                "error=%+.6f Hz (%+.6f ppm)\r\n",
                (unsigned)vco_solution.pio_divider_int,
                (unsigned)vco_solution.pio_divider_frac,
@@ -742,9 +1008,9 @@ int main(void) {
                vco_solution.error_hz,
                vco_solution.error_ppm);
     } else {
-        printf("VCO: ERROR de inicializacion/solucion\r\n");
+        cdc_printf("VCO: ERROR de inicializacion/solucion\r\n");
     }
-    fflush(stdout);
+    //fflush(stdout);
 
     /*--- Initialize blinking of built in LED */
     
@@ -754,12 +1020,44 @@ int main(void) {
     absolute_time_t next_blink =
         delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
 
+    PixiePicoSetup();
+      //*--- ADC (receiver) initialization
+  
+    pcCounter=0;
+    adc_init();
+    adc_select_input(0);                        // ADC input pin A0
+    adc_run(true);                              // start ADC free running
+    adc_set_clkdiv(249.0);                      // 192kHz sampling  (48000 / (249.0 +1) = 192)
+    adc_fifo_setup(true,false,0,false,false);   // fifo
+    cdc_printf("ADC receiver sub-system initialized\n");
+
+      //*--- USB Audio initialization (initialization of monodata[])
+    for (int i = 0; i < (CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ / 4); i++) {
+       monodata[i] = 0;
+    }
+
+//*--- Calibrate the ADC offset, read the DC offset value (ADC input)
+  
+    sleep_ms(100);
+    adc_fifo_drain ();
+
+    cdc_printf("Computing ADC offset\n");
+
+    adc_offset = adc();
+    cdc_printf("ADC input offset callibrated\n");
+    cdc_printf("Transceiver  ready\n");
 /*----------------------------------------------------------------------------
                            Main Loop
   ----------------------------------------------------------------------------*/
-
+    absolute_time_t next_cdc_test =
+    delayed_by_ms(get_absolute_time(), 1000);
+    uint32_t cdc_counter = 0;
+    
     while (true) {
 
+    
+       tud_task_ext(0, false);
+        /*-------------------- Housekeeping ---------------------------------*/
         /*--- Manage rotary decoder changes */
         int steps = rotary_encoder_take_steps();
         if (steps != 0) {
@@ -811,7 +1109,7 @@ int main(void) {
             }
 
             /*--- Show new solution if DEBUG is enabled*/
-            printf("VCO setfreq %" PRIu32
+            cdc_printf("VCO setfreq %" PRIu32
                    " Hz: %s; PLL=%u/%u/%u/%u; "
                    "CLKDIV=%u+%u/256; salida=%.6f Hz; "
                    "error=%+.6f Hz (%+.6f ppm)\r\n",
@@ -826,7 +1124,7 @@ int main(void) {
                    vco_solution.achieved_hz,
                    vco_solution.error_hz,
                    vco_solution.error_ppm);
-            fflush(stdout);
+            //fflush(stdout);
         }
 
         /*--- Manage built in LED blinking */
@@ -848,10 +1146,199 @@ int main(void) {
             if (!menuMode) {
                displayLED(led_level);
             }
-            fflush(stdout);
+            //fflush(stdout);
         }
 
+        /*-------------------- Housekeeping ---------------------------------*/
         
-        sleep_ms(1);
+         if (Tx_Start==0) {                     //Tx_Start=0 (RX) || Tx_Start=1 (TX)
+            receiving();
+         } else {
+            transmitting();
+         }    
+         sleep_ms(1);
     }
+}
+//*----------------------------------------------------------------------------*/
+//*  This procedure controls the main transmission cycle of the transceiver    */
+//*  The actual FSK data is created by an external program (i.e. WSJT-X) and   */
+//*  sent to this firmware over USB audio
+//*----------------------------------------------------------------------------*/
+void transmitting(){
+  
+  uint64_t audio_freq;
+
+
+  //*--- Check if there are digital audio samples to read, if so start the transmission cycle
+
+  if (audio_read_number > 0) {
+
+    //*--- Process the samples
+
+    for (int i=0;i<audio_read_number;i++){
+      
+      int16_t mono = monodata[i];
+ 
+      //*--- Detect an upward moving zero crossing
+
+      if ((mono_prev < 0) && (mono >= 0)) {
+         int16_t difference = mono - mono_prev;
+         float delta = (float)mono_prev / (float)difference;
+         float period = ((float)1.0 + delta_prev) + (float)sampling - delta;
+         audio_freq = (uint64_t)(AUDIOSAMPLING/(double)period); // in Hz    
+
+         //*--- Compute the period and FSK frequency, discard if above or below limits
+         if ((audio_freq > 200) && (audio_freq < 3000)){
+            cycle_frequency[cycle]=(uint32_t)audio_freq;
+            cycle++;
+         }
+       
+         delta_prev = delta;
+         sampling = 0;
+         mono_preprev = mono_prev;
+         mono_prev = mono;     
+
+      } else {
+
+        //*--- This is not a zero crossing, ignore samples
+
+        sampling++;
+        mono_preprev = mono_prev;
+        mono_prev = mono;
+      }
+    }
+
+    //*--- When enough data has been collected (10 mSec) an average is computed to compensate for errorr
+
+    if ((cycle > 0) && ((to_ms_since_boot(get_absolute_time()) - Tx_last_mod_time) > 10)){      //inhibit the frequency change faster than 20mS
+       audio_freq = 0;
+       for (int i = 0;i < cycle;i++){
+          audio_freq += cycle_frequency[i];
+       }
+       audio_freq = audio_freq / (uint64_t)cycle;
+       uint32_t f = frqFT8 + (uint32_t)audio_freq;
+
+       //*--- as the FSK frequency has been detected change the DCO accordingly
+
+       //*---- Change Frequecy here PioDCOSetFreq(&DCO, f, 0U);
+       
+       cdc_printf("FSK(%" PRIu64 ") Hz\n ",audio_freq);
+
+       //*--- and initialize next averaging cycle
+
+       cycle = 0;
+       Tx_last_mod_time = to_ms_since_boot(get_absolute_time()); ;
+    }
+
+    //*--- More cycles needs to be averaged, continue
+
+    not_TX_first = 1;
+    Tx_last_time = to_ms_since_boot(get_absolute_time());
+  
+  } else { 
+
+    //*--- No USB audio has been detected for a while, wait 100 mSecs and declare the frame to be terminated
+
+    if ((to_ms_since_boot(get_absolute_time()) - Tx_last_time) >= 100 && Tx_Start==1)  {     // If USBaudio data is not received for more than 50 ms during transmission, the system moves to receiving. 
+      cdc_printf("End of FT8 transmission\n");
+      Tx_Start = 0;
+      setTX(false);
+
+      //*--- Prepare for next cycle
+
+      cycle = 0;
+      sampling = 0;
+      mono_preprev = 0;
+      mono_prev = 0;     
+
+      //*--- Return the DCO frequency to the base in order to operate as a receiver
+
+      return;
+    }
+  } 
+  audio_read_number = USB_Audio_read(monodata);
+}
+//*----------------------------------------------------------------------------*/
+//*                    This is receiving functions                             */
+//* While no data is being sent over USB Audio the RX signals are digitized and*/
+//* sent over USB to the receiver program (external, likely WSJT-X)            */
+//*                  THIS FUNCTION IS ONLY PARTIALLY IMPLEMENTED               */
+//*----------------------------------------------------------------------------*/
+void receiving() {
+
+  audio_read_number = USB_Audio_read(monodata); // read in the USB Audio buffer to check the transmitting
+  if (audio_read_number != 0) 
+  {
+    cdc_printf("Start of FT8 transmission\n");
+    Tx_last_time=to_ms_since_boot(get_absolute_time());
+
+    Tx_Start=1;
+    setTX(true);
+
+    return;
+  }
+
+  int16_t rx_adc = (int16_t)(adc() - adc_offset); //read ADC data (8kHz sampling)
+  
+  // write the same 6 stereo data to PC for 48kHz sampling (up-sampling: 8kHz x 6 = 48 kHz)
+  
+  for (int i=0;i<6;i++){
+    audio_data_write(rx_adc, rx_adc);
+  }
+  
+  return;
+
+}
+/*----------------------------------------------------------------------------*/
+//*  Audio data is sent over USB (Receiver)                                   */
+/*----------------------------------------------------------------------------*/
+void audio_data_write(int16_t left, int16_t right) {
+  
+  if (pcCounter >= (48)) {                           //48: audio data number in 1ms
+    USB_Audio_write(adc_data, pcCounter);
+    pcCounter = 0;  
+  }
+  adc_data[pcCounter] = (int16_t)((left + right) / 2);
+  pcCounter++;
+}
+
+//*-----------------------   Integrate AD/C functions before removal --------------------------------
+void receive(){
+
+  Tx_Status=0;
+
+
+  // initialization of monodata[]
+  
+  for (int i = 0; i < (CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ / 4); i++) {
+    monodata[i] = 0;
+  } 
+  
+  // initialization of ADC and the data write counter
+  pcCounter=0;
+  adc_fifo_drain ();                     //initialization of adc fifo
+  adc_run(true);                         //start ADC free running
+
+
+}
+
+//*-----------------------   Integrate AD/C functions before removal --------------------------------
+void adc_drain(){
+
+  adc_fifo_drain ();
+  adc_offset = adc();
+  push_last_time = 0;
+
+}
+//*---------------------------------------------------------------------------------*/
+//*                        ADC Sub-System                                           */
+//* The ADC sub-system samples the mixer output of the receiver and sent it over USB*/
+//*---------------------------------------------------------------------------------*/
+int32_t adc() {
+  
+  int32_t adc = 0;
+  for (int i=0;i<24;i++){             // 192kHz/24 = 8kHz
+    adc += adc_fifo_get_blocking();   // read from ADC fifo
+  }  
+  return adc;
 }
