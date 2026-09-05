@@ -27,4 +27,8 @@ International (CC BY-SA 4.0).
 void transmitting(void);
 void receiving(void);
 void audio_data_write(int16_t,int16_t);
+static bool cdc_write_all(const char *data,
+                          size_t length,
+                          uint32_t timeout_ms);
+
 

@@ -62,7 +62,7 @@ International (CC BY-SA 4.0).
 
 
 //#define  PICO    1
-//#define   PICOW  1 
+//#define  PICOW   1 
 
 //*==============================================================================================*
 //*                                Configuration definitions                                     *
@@ -70,7 +70,8 @@ International (CC BY-SA 4.0).
 #define  DEBUG      1
 #define  VCO        1
 #define  WAITSERIAL 1
-
+#define  OLED       1
+#define  ROTARY     1
 //#define  EEPROM     1   
 //#define  FS         1
 
@@ -95,7 +96,6 @@ International (CC BY-SA 4.0).
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/adc.h"
-//#include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "ddsvco.h"
 #include "rotary_encoder.h"
@@ -110,10 +110,6 @@ International (CC BY-SA 4.0).
 //*                             Macros and Structures                                            *
 //*==============================================================================================*
 
-/* Declaración adelantada: la implementación puede permanecer antes de main(). */
-static bool cdc_write_all(const char *data,
-                          size_t length,
-                          uint32_t timeout_ms);
 #ifdef DEBUG
 
 #define cdc_printf(fmt, ...)                                      \
@@ -166,13 +162,6 @@ typedef struct {
 #define DEFAULT_STEP         0
 #define NBANDS               3
 #define NMODES               5
-
-
-
-PixiePico_t p;                      //*--- System Variables
-char hi[512];
-
-
 #define OLED_I2C i2c0
 #define OLED_SDA_PIN 0
 #define OLED_SCL_PIN 1
@@ -197,13 +186,18 @@ char hi[512];
 
 #define pin_A0               26U          //pin for ADC (A2)
 
+
+
+
 //*==============================================================================================*
 //*                                  Global Memory Areas                                         *
 //*==============================================================================================*
-
+PixiePico_t p;                      //*--- System Variables
+char hi[512];
 static ssd1306_t oled;
 static bool oled_available = false;
-static long current_frequency_hz = 7074000L;
+static bool rotary_available = false;
+static long current_frequency_hz = GEN_FRQ_HZ;
 static ddsvco_t vco;
 static ddsvco_solution_t vco_solution;
 static bool vco_available = false;
@@ -280,24 +274,50 @@ PixiePico_t fs;
 #endif //FS
 int32_t adc(); 
 
+static bool adc_read_average(int32_t *result)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    int32_t sum = 0;
+    int samples = 0;
+    absolute_time_t deadline = make_timeout_time_us(5000);
+
+    while (samples < 24) {
+        if (!adc_fifo_is_empty()) {
+            sum += (int32_t)adc_fifo_get();
+            ++samples;
+            continue;
+        }
+
+        /*
+         * Evita dejar sin servicio USB y los controles mientras
+         * esperamos una muestra.
+         */
+        tud_task_ext(0, false);
+
+        if (time_reached(deadline)) {
+            return false;
+        }
+
+        tight_loop_contents();
+    }
+
+    *result = sum;
+    return true;
+}
 
 /*---
 Wait for the Serial Monitor window to be opened
 */              
 static bool wait_for_usb_monitor(void)
 {
-    /*
-     * Espera indefinidamente hasta que el monitor abra CDC y active DTR.
-     */
     while (!tud_cdc_n_connected(0)) {
         tud_task_ext(0, false);
         sleep_ms(1);
     }
 
-    /*
-     * El puerto ya está abierto, pero damos tiempo a Windows y al monitor
-     * para terminar de preparar la recepción.
-     */
     absolute_time_t settle_deadline = make_timeout_time_ms(150);
 
     while (!time_reached(settle_deadline)) {
@@ -319,9 +339,22 @@ static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
 /*--- 
 Turn on-off the built in LED
 */
+
+//static void set_led(PIO pio, uint state_machine,
+//                    uint8_t red, uint8_t green, uint8_t blue) {
+//    pio_sm_put_blocking(pio, state_machine, rgb_to_grb(red, green, blue));
+//}
+
 static void set_led(PIO pio, uint state_machine,
-                    uint8_t red, uint8_t green, uint8_t blue) {
-    pio_sm_put_blocking(pio, state_machine, rgb_to_grb(red, green, blue));
+                    uint8_t red, uint8_t green, uint8_t blue)
+{
+    if (!pio_sm_is_tx_fifo_full(pio, state_machine)) {
+        pio_sm_put(
+            pio,
+            state_machine,
+            rgb_to_grb(red, green, blue)
+        );
+    }
 }
 
 /*---
@@ -776,6 +809,10 @@ void updateMenu(uint8_t m, int s) {
    Detect and operate upon 
 */
   void rotaryTurn(int direction) {
+    if (!rotary_available) {
+        return;
+    }
+
     if (direction != 1 && direction != -1) {
         return;
     }
@@ -802,6 +839,9 @@ void updateMenu(uint8_t m, int s) {
 */
 void SWclick(bool pressed) {
 
+    if (!rotary_available) {
+        return;
+    }
     cdc_printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
     //fflush(stdout);
 
@@ -859,23 +899,16 @@ void SWclick(bool pressed) {
     }
 }
 
-//*----------------------------------------------------------------------------*/
-//*  I/O for the ADX board controls (LED, switches and jumpers            */
-//*----------------------------------------------------------------------------*/
-void PixiePicoSetup(){
-
-    //*--- GPIO setting for the ADC control (receiver) 
-    gpio_init(pin_A0);
-    gpio_set_dir(pin_A0, GPIO_IN); //ADC input pin
-  
-    //*--- End of ADX control board initialization
-    cdc_printf("PixiePico Board initialized\n");
-    
-}
+/* --- Starts or stops the transceiver transmission
+       TO BE IMPLENTED
+*/
 void setTX(bool t)
 {
     //#----- TEST Dummy --- Switch on and off
 }
+/* --- Write to Serial Monitor
+
+*/
 static bool cdc_write_all(const char *data,
                           size_t length,
                           uint32_t timeout_ms)
@@ -933,6 +966,8 @@ static bool cdc_write_all(const char *data,
 
 int main(void) {
 
+    /* --- Initializes VCO sub-system 
+    */
     #ifdef VCO 
     
     uint32_t pending_frequency_hz;
@@ -951,15 +986,17 @@ int main(void) {
 
     vco_available = ddsvco_init(&vco, &vco_config) &&
                     ddsvco_solve(&vco, (uint32_t)current_frequency_hz,
-                              &vco_solution) &&
+                                 &vco_solution) &&
                     ddsvco_start(&vco, &vco_solution);
 
 #else
     vco_available = false;                
 #endif //VCO
 
-    /*--- Start the other subsystems*/
+    /*--- Start remaining available subsystems*/
 
+    /* --- Initializes a PIO to start the ws2812 built in LED
+    */
     const PIO pio = pio0;
     const uint state_machine = 0;
     const uint pio_offset = pio_add_program(pio, &ws2812_program);
@@ -973,31 +1010,38 @@ int main(void) {
         false
     );
 
-    /* Rojo: se alcanzó main(), pero USB todavía no fue inicializado. */
+    /* Red: Indicates within initialization (error if lasting too long) */
     set_led(pio, state_machine, 24, 0, 0);
 
+    /*--- Initialize USB serial port
+    */
     tusb_rhport_init_t dev_init = {
         .role  = TUSB_ROLE_DEVICE,
         .speed = TUSB_SPEED_FULL
     };
 
-
-    set_led(pio, state_machine, 24, 0, 0);  // rojo: antes de TinyUSB
-
+    set_led(pio, state_machine, 24, 0, 0);  // Red prior to TinyUSB
     bool usb_ok = tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
     if (usb_ok) {
-       set_led(pio, state_machine, 24, 24, 0); // amarillo: init correcta
+       set_led(pio, state_machine, 24, 24, 0); // Yellow: Init has been Ok
     } else {
-       set_led(pio, state_machine, 0, 0, 24);  // azul: init devolvió false
+       set_led(pio, state_machine, 0, 0, 24);  // Blue: Something went wrong
     }
 
-    
+    /*--- If in DEBUG mode wait for the Serial Monitor window to open
+    */
+    #ifdef WAITSERIAL
     wait_for_usb_monitor();
-    set_led(pio, state_machine, 0, 0, 24);  // verde
-    /*--- Initialize another PIO for the built in LED*/
+    #endif //WAITSERIAL
+
+    /*--- If init got thus far everything seems to be ok
+    */
+    set_led(pio, state_machine, 0, 0, 24);  // Green, initialization completed
     
-    /*--- Define I/O mapping for I2C subsystem*/                    
+    /*--- Initialize another PIO for the built in LED*/
+       /*--- Define I/O mapping for I2C subsystem*/
+    
     i2c_init(OLED_I2C, OLED_I2C_FREQUENCY_HZ);
     gpio_set_function(OLED_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(OLED_SCL_PIN, GPIO_FUNC_I2C);
@@ -1005,12 +1049,21 @@ int main(void) {
     gpio_pull_up(OLED_SCL_PIN);
 
     /*--- Initialize and define the encoder */
+    #ifdef ROTARY
     rotary_encoder_t encoder;
     rotary_encoder_init(&encoder,
                         ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
+    rotary_available=true;
+    #else
+    rotary_available=false;
+    #endif //ROTARY
 
     /*--- Initialize and define the OLED display */                    
+    #ifdef OLED
     oled_available = ssd1306_init(&oled, OLED_I2C, OLED_I2C_ADDRESS);
+    #else
+    oled_available = false;
+    #endif //OLED
 
     /*--- Establish current frequency based on programmed band */
     if (current_frequency_hz <= 0) {
@@ -1030,12 +1083,13 @@ int main(void) {
     wait_for_usb_monitor();
 #endif
 
-    cdc_printf("testVCO iniciado en Waveshare RP2040-Zero\r\n");
+    cdc_printf("PixiePico started at board Waveshare RP2040-Zero\r\n");
     cdc_printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
     cdc_printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
-    cdc_printf("OLED %s; pantalla FT8/VFOA/TX, frecuencia 28074.00\r\n",
-           oled_available ? "detectado" : "NO detectado");
+    cdc_printf("OLED %s; screen FT8/VFOA/TX, freq %ld\r\n",
+           oled_available ? "detected" : "NOT detected",current_frequency_hz);
+    cdc_printf("Rotary encoder %s\r\n",rotary_available ? "detected" : "NOT detected");
     cdc_printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
            ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
     if (vco_available) {
@@ -1059,9 +1113,8 @@ int main(void) {
                vco_solution.error_hz,
                vco_solution.error_ppm);
     } else {
-        cdc_printf("VCO: ERROR de inicializacion/solucion\r\n");
+        cdc_printf("VCO: Not available or init error\r\n");
     }
-    //fflush(stdout);
 
     /*--- Initialize blinking of built in LED */
     
@@ -1069,23 +1122,51 @@ int main(void) {
     unsigned long cycle = 0;
     unsigned led_level = 0;
     absolute_time_t next_blink =
-        delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
+    delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
 
-    PixiePicoSetup();
-      //*--- ADC (receiver) initialization
+    /*--- This is the initial hardware setup of the transceiver ---*/
+    //*--- GPIO setting for the ADC control (receiver) 
+    gpio_init(pin_A0);
+    gpio_set_dir(pin_A0, GPIO_IN); //ADC input pin
+  
+    //*--- End of ADX control board initialization
+    cdc_printf("PixiePico Board initialized\n");
+
+    //*--- ADC (receiver) initialization
   
     pcCounter=0;
     adc_init();
-    adc_select_input(0);                        // ADC input pin A0
-    adc_run(true);                              // start ADC free running
-    adc_set_clkdiv(249.0);                      // 192kHz sampling  (48000 / (249.0 +1) = 192)
-    adc_fifo_setup(true,false,0,false,false);   // fifo
+    adc_select_input(0); 
+                           // ADC input pin A0
+    //adc_run(true);                              // start ADC free running
+    //adc_set_clkdiv(249.0);                      // 192kHz sampling  (48000 / (249.0 +1) = 192)
+    //adc_fifo_setup(true,false,0,false,false);   // fifo
+    adc_init();
+    adc_gpio_init(pin_A0);
+    adc_select_input(0);
+
+    adc_run(false);
+
+    adc_set_clkdiv(249.0f);
+
+    adc_fifo_setup(
+       true,   /* FIFO habilitada */
+       false,  /* sin DREQ */
+       1,      /* umbral válido */
+       false,  /* no incluir ERR */
+       false   /* no desplazar a 8 bits */
+    );
+
+    adc_fifo_drain();
+    adc_run(true);
+    
     cdc_printf("ADC receiver sub-system initialized\n");
 
       //*--- USB Audio initialization (initialization of monodata[])
     for (int i = 0; i < (CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ / 4); i++) {
        monodata[i] = 0;
     }
+    cdc_printf("USB audio initialized\r\n");
 
 //*--- Calibrate the ADC offset, read the DC offset value (ADC input)
   
@@ -1094,22 +1175,30 @@ int main(void) {
 
     cdc_printf("Computing ADC offset\n");
 
-    adc_offset = adc();
+    //*--- DEBUG adc_offset = adc();
+
+    if (!adc_read_average(&adc_offset)) {
+       adc_offset = 0;
+       cdc_printf("ERROR: ADC timeout during calibration\r\n");
+    }
+    
     cdc_printf("ADC input offset callibrated\n");
-    cdc_printf("Transceiver  ready\n");
 /*----------------------------------------------------------------------------
                            Main Loop
   ----------------------------------------------------------------------------*/
     absolute_time_t next_cdc_test =
     delayed_by_ms(get_absolute_time(), 1000);
-    uint32_t cdc_counter = 0;
+    cdc_printf("Transceiver  ready\n");
     
     while (true) {
 
     
        tud_task_ext(0, false);
-        /*-------------------- Housekeeping ---------------------------------*/
+
+       /*-------------------- Housekeeping ---------------------------------*/
         /*--- Manage rotary decoder changes */
+        #ifdef ROTARY
+        
         int steps = rotary_encoder_take_steps();
         if (steps != 0) {
         
@@ -1132,11 +1221,14 @@ int main(void) {
               }
            }
         }
+        
         /*--- Manage the press of the SW of the rotary encoder */
         bool switch_pressed;
+        
         if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
             SWclick(switch_pressed);
         }
+        #endif //ROTARY
 
         /*--- Manage changes in the VCO frequency */
 
@@ -1175,10 +1267,10 @@ int main(void) {
                    vco_solution.achieved_hz,
                    vco_solution.error_hz,
                    vco_solution.error_ppm);
-            //fflush(stdout);
         }
 
         /*--- Manage built in LED blinking */
+
         if (time_reached(next_blink)) {
             next_blink = delayed_by_ms(next_blink, BLINK_INTERVAL_MS);
             is_on = !is_on;
@@ -1197,10 +1289,9 @@ int main(void) {
             if (!menuMode) {
                displayLED(led_level);
             }
-            //fflush(stdout);
         }
 
-        /*-------------------- Housekeeping ---------------------------------*/
+        /*-------------------- Transmission cycle  -------------*/
         
          if (Tx_Start==0) {                     //Tx_Start=0 (RX) || Tx_Start=1 (TX)
             receiving();
@@ -1219,7 +1310,6 @@ void transmitting(){
   
   uint64_t audio_freq;
 
-
   //*--- Check if there are digital audio samples to read, if so start the transmission cycle
 
   if (audio_read_number > 0) {
@@ -1233,15 +1323,23 @@ void transmitting(){
       //*--- Detect an upward moving zero crossing
 
       if ((mono_prev < 0) && (mono >= 0)) {
-         int16_t difference = mono - mono_prev;
+
+      int16_t difference = mono - mono_prev;
          float delta = (float)mono_prev / (float)difference;
          float period = ((float)1.0 + delta_prev) + (float)sampling - delta;
          audio_freq = (uint64_t)(AUDIOSAMPLING/(double)period); // in Hz    
 
+         
          //*--- Compute the period and FSK frequency, discard if above or below limits
          if ((audio_freq > 200) && (audio_freq < 3000)){
-            cycle_frequency[cycle]=(uint32_t)audio_freq;
-            cycle++;
+            //cycle_frequency[cycle]=(uint32_t)audio_freq;
+            //cycle++;
+            if (cycle < 136) {
+                cycle_frequency[cycle++] = (uint32_t)audio_freq;
+            } else {
+                cycle = 0;
+                cdc_printf("WARNING: audio cycle buffer overflow\r\n");
+            }
          }
        
          delta_prev = delta;
@@ -1270,7 +1368,6 @@ void transmitting(){
        uint32_t f = frqFT8 + (uint32_t)audio_freq;
 
        //*--- as the FSK frequency has been detected change the DCO accordingly
-
        //*---- Change Frequecy here PioDCOSetFreq(&DCO, f, 0U);
        
        cdc_printf("FSK(%" PRIu64 ") Hz\n ",audio_freq);
@@ -1291,7 +1388,7 @@ void transmitting(){
     //*--- No USB audio has been detected for a while, wait 100 mSecs and declare the frame to be terminated
 
     if ((to_ms_since_boot(get_absolute_time()) - Tx_last_time) >= 100 && Tx_Start==1)  {     // If USBaudio data is not received for more than 50 ms during transmission, the system moves to receiving. 
-      cdc_printf("End of FT8 transmission\n");
+      cdc_printf("End of transmission\n");
       Tx_Start = 0;
       setTX(false);
 
@@ -1320,7 +1417,7 @@ void receiving() {
   audio_read_number = USB_Audio_read(monodata); // read in the USB Audio buffer to check the transmitting
   if (audio_read_number != 0) 
   {
-    cdc_printf("Start of FT8 transmission\n");
+    cdc_printf("Start of transmission\n");
     Tx_last_time=to_ms_since_boot(get_absolute_time());
 
     Tx_Start=1;
@@ -1329,8 +1426,18 @@ void receiving() {
     return;
   }
 
-  int16_t rx_adc = (int16_t)(adc() - adc_offset); //read ADC data (8kHz sampling)
-  
+  //int16_t rx_adc = (int16_t)(adc() - adc_offset); //read ADC data (8kHz sampling)
+  int32_t adc_value;
+
+  if (!adc_read_average(&adc_value)) {
+    /*
+     * No bloquear todo el transceptor si el ADC deja de producir.
+     * La próxima iteración volverá a intentarlo.
+     */
+    return;
+  }
+
+  int16_t rx_adc = (int16_t)(adc_value - adc_offset);
   // write the same 6 stereo data to PC for 48kHz sampling (up-sampling: 8kHz x 6 = 48 kHz)
   
   for (int i=0;i<6;i++){
@@ -1352,12 +1459,12 @@ void audio_data_write(int16_t left, int16_t right) {
   adc_data[pcCounter] = (int16_t)((left + right) / 2);
   pcCounter++;
 }
-
-//*-----------------------   Integrate AD/C functions before removal --------------------------------
+/*----------------------------------------------------------------------------*/
+//*  Receiver functions                                                       */
+/*----------------------------------------------------------------------------*/
 void receive(){
 
   Tx_Status=0;
-
 
   // initialization of monodata[]
   
@@ -1366,10 +1473,12 @@ void receive(){
   } 
   
   // initialization of ADC and the data write counter
+
   pcCounter=0;
   adc_fifo_drain ();                     //initialization of adc fifo
-  adc_run(true);                         //start ADC free running
-
+  adc_run(true);  
+  
+  //start ADC free running
 
 }
 
