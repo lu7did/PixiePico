@@ -73,6 +73,7 @@ International (CC BY-SA 4.0).
 #define  OLED       1
 #define  ROTARY     1
 #define  WATCHDOG   1
+#define  KEYER      1
 //#define  EEPROM     1   
 //#define  FS         1
 
@@ -157,7 +158,7 @@ typedef struct {
 #define PLL_SYS_MHZ_PLUS   250            // RP2040 System Clock (MHz) --OVERCLOCK--
 #define GEN_FRQ_HZ     7074000L           // Generator Frequency (in Hz)
 #define FT8_BASE_HZ       1000L           // FT8 base frequency (in Hz) <Not used>
-#define DEFAULT_MODE         3            // Default mode FT8
+#define DEFAULT_MODE         4            // Default mode FT8
 #define DEFAULT_BAND         0            // Default band 40m
 #define DEFAULT_VFO          0            // Default Vfo A
 #define DEFAULT_SHIFT        0
@@ -188,6 +189,10 @@ typedef struct {
 
 #define pin_A0               26U          //pin for ADC (A2)
 
+#ifdef KEYER
+#define PUSH_BUTTON_GPIO      5u
+#endif //KEYER 
+
 #ifdef WATCHDOG
 #define TRACE_BOOT       0x10u
 #define TRACE_USB        0x20u
@@ -207,6 +212,7 @@ PixiePico_t p;                      //*--- System Variables
 char hi[512];
 static ssd1306_t oled;
 static bool oled_available = false;
+static bool keyer_available=false;
 static bool rotary_available = false;
 static long current_frequency_hz = GEN_FRQ_HZ;
 static ddsvco_t vco;
@@ -214,8 +220,11 @@ static ddsvco_solution_t vco_solution;
 static bool vco_available = false;
 static bool vco_frequency_pending = false;
 static absolute_time_t vco_frequency_deadline;
+const PIO pio = pio0;
+const uint state_machine = 0;
 
 uint32_t timerSW = 0UL;
+
 
 bool menuMode=false;
 bool editMode=false;
@@ -245,7 +254,7 @@ long unsigned int Bands[NBANDS][NMODES] = {
 int32_t adc_offset = 0;   
 uint64_t audio_freq_prev=0.0;
 int Tx_Status = 0; // 0=RX, 1=TX
-int Tx_Start = 0;  // 0=RX, 1=TX
+bool TX = false;  // false=RX, true=TX
 int not_TX_first = 0;
 uint32_t Tx_last_mod_time;
 uint32_t Tx_last_time;
@@ -301,7 +310,7 @@ static bool adc_read_average(int32_t *result)
             ++samples;
             continue;
         }
-        
+
 
         /*
          * Evita dejar sin servicio USB y los controles mientras
@@ -362,11 +371,6 @@ static inline uint32_t rgb_to_grb(uint8_t red, uint8_t green, uint8_t blue) {
 /*--- 
 Turn on-off the built in LED
 */
-
-//static void set_led(PIO pio, uint state_machine,
-//                    uint8_t red, uint8_t green, uint8_t blue) {
-//    pio_sm_put_blocking(pio, state_machine, rgb_to_grb(red, green, blue));
-//}
 
 static void set_led(PIO pio, uint state_machine,
                     uint8_t red, uint8_t green, uint8_t blue)
@@ -597,7 +601,7 @@ void displayPanel() {
 
     displayMode(iMode);
     displayVFO(iVfo);
-    displayTX(iTX);
+    displayTX(TX);
     displayLED(iLED);
     displayFreq(current_frequency_hz);
 
@@ -925,15 +929,8 @@ void SWclick(bool pressed) {
     }
 }
 
-/* --- Starts or stops the transceiver transmission
-       TO BE IMPLENTED
-*/
-void setTX(bool t)
-{
-    //#----- TEST Dummy --- Switch on and off
-}
-/* --- Write to Serial Monitor
 
+/* --- Write to Serial Monitor
 */
 static bool cdc_write_all(const char *data,
                           size_t length,
@@ -986,33 +983,107 @@ static bool cdc_write_all(const char *data,
 
     return true;
 }
+/*=============================================================================
+                            Manage Keyer
+  =============================================================================*/
+#ifdef KEYER
+static void push_button_init(uint gpio)
+{
+    gpio_init(gpio);
+    gpio_set_dir(gpio, GPIO_IN);
+
+    /*
+     * Pullup to ensure a HIGH when the button is open
+     * Might be supplemented by an external pull up resistor
+     */
+    gpio_pull_up(gpio);
+}
+
+static bool push_button_is_pressed(uint gpio)
+{
+    /* LOW is active */
+    return gpio_get(gpio) == 0;
+}
+#endif //KEYER
+void setFreq(uint32_t f) {
+    if (vco_available) {
+        vco_frequency_pending = false;
+        const uint32_t previous_sys_clk_hz = clock_get_hz(clk_sys);
+        const ddsvco_setfreq_result_t result =
+                ddsvco_setfreq(&vco, (uint32_t)f,&vco_solution);
+        
+        const uint32_t new_sys_clk_hz = clock_get_hz(clk_sys);
+        if (result == DDSVCO_SETFREQ_APPLIED && new_sys_clk_hz != previous_sys_clk_hz) {
+                /* PIO0 también deriva de clk_sys: restaurar 800 kHz del
+                 * WS2812 después de modificar PLL_SYS. */
+                //ws2812_program_init(pio, state_machine, pio_offset,
+                //                    PICO_DEFAULT_WS2812_PIN,
+                //                    WS2812_FREQUENCY_HZ, false);
+        }
+
+            /*--- Show new solution if DEBUG is enabled*/
+            cdc_printf("VCO f %" PRIu32 " Hz: error=%+.6f Hz\r\n",
+                   (uint32_t)f,vco_solution.error_hz);
+        }
+
+}
+
+/* --- Starts or stops the transceiver transmission
+*/
+void setTX(bool t)
+{
+    cdc_printf("Keyer(%s)\r\n",BOOL2CHAR(t));
+    displayTX(t);
+
+    if (t) {            //Turn on transmitter 
+       displayLED(5);
+       if (iMode == 4) {
+
+          int s=(600+iShift*100);
+          if (iBand == 0) {
+             s=-s;
+          }
+          cdc_printf("Applying shift %d\r\n",s);
+          uint32_t f=current_frequency_hz+(uint32_t)s;
+          setFreq(f);
+       }
+    } else {            //Turn off transmitter (or Turn on receiver)
+       displayLED(0);
+       setFreq(current_frequency_hz);
+    }
+
+}
+void setLED(bool t) {
+    if (t) {
+        set_led(pio, state_machine, 24, 0, 0);
+    } else {
+        set_led(pio, state_machine, 0, 24, 0);
+    }  
+}
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 /*                               MAIN                                      */
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
 int main(void) {
 
-
     #ifdef WATCHDOG
-    /*--- If the watchdog was activated on a previous run mark it */
-    //const bool rebooted_by_watchdog = watchdog_caused_reboot();
-    //uint32_t previous_trace = watchdog_hw->scratch[0];
-    //bool watchdog_reset = watchdog_caused_reboot();
-
-
     const bool rebooted_by_watchdog = watchdog_caused_reboot();
     const uint32_t watchdog_trace = watchdog_hw->scratch[0];
-
     watchdog_hw->scratch[0] = TRACE_BOOT;
-
-
     #endif //WATCHDOG
+
+    #ifdef KEYER
+    push_button_init(PUSH_BUTTON_GPIO);
+    keyer_available = true;
+    #endif //KEYER
 
     /* --- Initializes VCO sub-system 
     */
     #ifdef VCO 
     
     uint32_t pending_frequency_hz;
+    current_frequency_hz = Bands[iBand][iMode];
+
     if (ddsvco_take_pending_frequency(&pending_frequency_hz)) {
         current_frequency_hz = (long)pending_frequency_hz;
     }
@@ -1025,20 +1096,6 @@ int main(void) {
         .sys_clk_max_hz = DDSVCO_SYS_CLK_MAX_HZ,
         .reboot_on_pll_change = false,
     };
-
-    #ifdef EXCLUDE
-    const ddsvco_config_t vco_config = {
-    .pio = pio1,
-    .state_machine = -1,
-    .output_gpio = DDSVCO_OUTPUT_GPIO,
-
-    /* Prueba de estabilidad sin sobreclock */
-    .sys_clk_min_hz = 125000000u,
-    .sys_clk_max_hz = 133000000u,
-
-    .reboot_on_pll_change = false,
-    };
-    #endif //EXCLUDE
 
     vco_available = ddsvco_init(&vco, &vco_config) &&
                     ddsvco_solve(&vco, (uint32_t)current_frequency_hz,
@@ -1053,8 +1110,6 @@ int main(void) {
 
     /* --- Initializes a PIO to start the ws2812 built in LED
     */
-    const PIO pio = pio0;
-    const uint state_machine = 0;
     const uint pio_offset = pio_add_program(pio, &ws2812_program);
 
     ws2812_program_init(
@@ -1146,6 +1201,7 @@ int main(void) {
         current_frequency_hz = Bands[iBand][iMode];
     }
 
+
     /*--- Display panel */
     if (oled_available) {
         ssd1306_clear(&oled);
@@ -1166,6 +1222,12 @@ int main(void) {
        cdc_printf("WATCHDOG RESET: last stage=0x%02" PRIx32 "\r\n",rebooted_by_watchdog);
     }
     #endif //WATCHDOG
+
+    #ifdef KEYER
+    if (keyer_available) {
+       cdc_printf("Straight Keyer active\r\n");   
+    }
+    #endif //KEYER 
 
     cdc_printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
     cdc_printf("OLED: SSD1306 128x32, I2C0, SDA=GPIO%d, SCL=GPIO%d, addr=0x%02X\r\n",
@@ -1266,28 +1328,27 @@ int main(void) {
     }
     
     cdc_printf("ADC input offset callibrated\n");
-/*----------------------------------------------------------------------------
-                           Main Loop
-  ----------------------------------------------------------------------------*/
     #ifdef WATCHDOG
     bool watchdog_report_pending = rebooted_by_watchdog;
     #endif //WATCHDOG
-  
-  
-  
-    absolute_time_t next_cdc_test =
-    delayed_by_ms(get_absolute_time(), 1000);
-    cdc_printf("Transceiver  ready\n");
+
     
-
-
-
-
     #ifdef WATCHDOG
     watchdog_enable(5000, false);
     #endif //WATCHDOG
 
+    #ifdef KEYER
+    bool previous_push_button = false;
+    #endif //KEYER
 
+    absolute_time_t next_cdc_test =
+    delayed_by_ms(get_absolute_time(), 1000);
+    cdc_printf("Transceiver  ready\n");
+
+
+    /*----------------------------------------------------------------------------
+                           Main Loop
+  ----------------------------------------------------------------------------*/
 
     while (true) {
 
@@ -1305,7 +1366,7 @@ int main(void) {
         #endif //WATCHDOG
 
         int steps = rotary_encoder_take_steps();
-        if (steps != 0) {
+        if (steps != 0 && !TX) {
         
            if (!menuMode) {
               while (steps > 0) {
@@ -1334,15 +1395,15 @@ int main(void) {
         /*--- Manage the press of the SW of the rotary encoder */
         bool switch_pressed;
         
-        if (rotary_encoder_poll_switch(&encoder, &switch_pressed)) {
-            SWclick(switch_pressed);
+        if (rotary_encoder_poll_switch(&encoder, &switch_pressed) && !TX) {
+           SWclick(switch_pressed);
         }
         #endif //ROTARY
 
         /*--- Manage changes in the VCO frequency */
 
         if (vco_available && vco_frequency_pending &&
-            time_reached(vco_frequency_deadline)) {
+            time_reached(vco_frequency_deadline) && !TX) {
             vco_frequency_pending = false;
 
             const uint32_t previous_sys_clk_hz = clock_get_hz(clk_sys);
@@ -1380,6 +1441,17 @@ int main(void) {
                    vco_solution.error_hz,
                    vco_solution.error_ppm);
         }
+        /*--- Check Keyer ---*/
+        #ifdef KEYER
+        bool current_push_button=push_button_is_pressed(PUSH_BUTTON_GPIO);
+        if (previous_push_button != current_push_button) {
+            previous_push_button = current_push_button;
+            TX=current_push_button;
+            setTX(TX);
+            setLED(TX);
+
+        }
+        #endif //KEYER
 
         /*--- Manage built in LED blinking */
         #ifdef WATCHDOG
@@ -1396,14 +1468,14 @@ int main(void) {
                 led_level = 0;
             }
             if (is_on) {
-                set_led(pio, state_machine, 0, 24, 0);
+                setLED(TX);
             } else {
                 set_led(pio, state_machine, 0, 0, 0);
             }
 
-            if (!menuMode) {
+            if (!menuMode && !TX) {
                displayLED(led_level);
-            }
+            } 
         }
 
         /*-------------------- Transmission cycle  -------------*/
@@ -1411,11 +1483,13 @@ int main(void) {
         watchdog_hw->scratch[0] = TRACE_AUDIO;
         #endif //WATCHDOG
         
-         if (Tx_Start==0) {                     //Tx_Start=0 (RX) || Tx_Start=1 (TX)
-            receiving();
-         } else {
-            transmitting();
-         }    
+        if (!current_push_button) {       //Manual Keyer override VOX keyer
+           if (!TX) {                     //TX=false (RX) || TX=true (TX)
+              receiving();
+           } else {
+              transmitting();
+           }    
+        }
 
          sleep_ms(1);
          #ifdef WATCHDOG
@@ -1517,11 +1591,11 @@ void transmitting(){
 
     //*--- No USB audio has been detected for a while, wait 100 mSecs and declare the frame to be terminated
 
-    if ((to_ms_since_boot(get_absolute_time()) - Tx_last_time) >= 100 && Tx_Start==1)  {     // If USBaudio data is not received for more than 50 ms during transmission, the system moves to receiving. 
+    if ((to_ms_since_boot(get_absolute_time()) - Tx_last_time) >= 100 && TX)  {     // If USBaudio data is not received for more than 50 ms during transmission, the system moves to receiving. 
       cdc_printf("End of transmission\n");
-      Tx_Start = 0;
-      setTX(false);
-
+      TX = false;
+      setTX(TX);
+      setLED(TX);
       //*--- Prepare for next cycle
 
       cycle = 0;
@@ -1550,9 +1624,9 @@ void receiving() {
     cdc_printf("Start of transmission\n");
     Tx_last_time=to_ms_since_boot(get_absolute_time());
 
-    Tx_Start=1;
-    setTX(true);
-
+    TX=true;
+    setTX(TX);
+    setLED(TX);
     return;
   }
 
