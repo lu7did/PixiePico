@@ -60,6 +60,7 @@ International (CC BY-SA 4.0).
 //*==============================================================================================*
 #define  RP2040Z  1
 
+
 //#define  PICO    1
 //#define   PICOW  1 
 
@@ -67,9 +68,10 @@ International (CC BY-SA 4.0).
 //*                                Configuration definitions                                     *
 //*==============================================================================================*
 #define  DEBUG      1
+#define  VCO        1
+#define  WAITSERIAL 1
 
 //#define  EEPROM     1   
-//#define  WAITSERIAL 1
 //#define  FS         1
 
 //*==============================================================================================*
@@ -107,21 +109,31 @@ International (CC BY-SA 4.0).
 //*==============================================================================================*
 //*                             Macros and Structures                                            *
 //*==============================================================================================*
+
+/* Declaración adelantada: la implementación puede permanecer antes de main(). */
+static bool cdc_write_all(const char *data,
+                          size_t length,
+                          uint32_t timeout_ms);
 #ifdef DEBUG
+
 #define cdc_printf(fmt, ...)                                      \
     do {                                                          \
         int _cdc_len = snprintf(hi, sizeof(hi),                    \
                                 "[%s]: " fmt,                      \
                                 __func__, ##__VA_ARGS__);          \
-        if (_cdc_len > 0 && tud_cdc_n_connected(0)) {             \
-            if (_cdc_len >= (int)sizeof(hi))                       \
-                _cdc_len = (int)sizeof(hi) - 1;                    \
-            tud_cdc_n_write(0, hi, (uint32_t)_cdc_len);            \
-            tud_cdc_n_write_flush(0);                              \
+        if (_cdc_len > 0) {                                       \
+            size_t _cdc_size = (size_t)_cdc_len;                  \
+            if (_cdc_size >= sizeof(hi)) {                         \
+                _cdc_size = sizeof(hi) - 1u;                      \
+            }                                                     \
+            (void)cdc_write_all(hi, _cdc_size, 250);              \
         }                                                         \
     } while (0)
-#else  //!DEBUG
+
+#else
+
 #define cdc_printf(...) (void)0
+
 #endif //DEBUG    
 //*---------------------------------------------------------------------------------------*
 //* Define a 128 bytes storage area for the run time configuration 
@@ -158,7 +170,7 @@ typedef struct {
 
 
 PixiePico_t p;                      //*--- System Variables
-char hi[128];
+char hi[512];
 
 
 #define OLED_I2C i2c0
@@ -272,30 +284,28 @@ int32_t adc();
 /*---
 Wait for the Serial Monitor window to be opened
 */              
-/*
-static void wait_for_usb_monitor(void) {
-    for (int attempt = 0; attempt < 150; ++attempt) {
-        if (stdio_usb_connected()) {
-            return;
-        }
-        sleep_ms(100);
-    }
-}
-*/
-static void wait_for_usb_monitor(void)
+static bool wait_for_usb_monitor(void)
 {
-    absolute_time_t deadline =
-        make_timeout_time_ms(15000);
-
-    while (!time_reached(deadline)) {
+    /*
+     * Espera indefinidamente hasta que el monitor abra CDC y active DTR.
+     */
+    while (!tud_cdc_n_connected(0)) {
         tud_task_ext(0, false);
-
-        if (tud_cdc_n_connected(0)) {
-            return;
-        }
-
         sleep_ms(1);
     }
+
+    /*
+     * El puerto ya está abierto, pero damos tiempo a Windows y al monitor
+     * para terminar de preparar la recepción.
+     */
+    absolute_time_t settle_deadline = make_timeout_time_ms(150);
+
+    while (!time_reached(settle_deadline)) {
+        tud_task_ext(0, false);
+        sleep_ms(1);
+    }
+
+    return true;
 }
 /*--- 
 Change color of built in LED
@@ -866,13 +876,65 @@ void setTX(bool t)
 {
     //#----- TEST Dummy --- Switch on and off
 }
+static bool cdc_write_all(const char *data,
+                          size_t length,
+                          uint32_t timeout_ms)
+{
+    absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+    size_t sent = 0;
+
+    if (!tud_cdc_n_connected(0)) {
+        return false;
+    }
+
+    while (sent < length) {
+        tud_task_ext(0, false);
+
+        if (!tud_cdc_n_connected(0)) {
+            return false;
+        }
+
+        uint32_t written = tud_cdc_n_write(
+            0,
+            data + sent,
+            (uint32_t)(length - sent)
+        );
+
+        sent += written;
+        tud_cdc_n_write_flush(0);
+
+        if (written == 0) {
+            if (time_reached(deadline)) {
+                return false;
+            }
+
+            sleep_ms(1);
+        }
+    }
+
+    /*
+     * Permite que TinyUSB entregue el último paquete al controlador USB.
+     * No es necesario esperar mucho.
+     */
+    tud_cdc_n_write_flush(0);
+
+    absolute_time_t flush_deadline = make_timeout_time_ms(20);
+
+    while (!time_reached(flush_deadline)) {
+        tud_task_ext(0, false);
+        sleep_ms(1);
+    }
+
+    return true;
+}
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 /*                               MAIN                                      */
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
 int main(void) {
 
-    /*
+    #ifdef VCO 
+    
     uint32_t pending_frequency_hz;
     if (ddsvco_take_pending_frequency(&pending_frequency_hz)) {
         current_frequency_hz = (long)pending_frequency_hz;
@@ -892,8 +954,10 @@ int main(void) {
                               &vco_solution) &&
                     ddsvco_start(&vco, &vco_solution);
 
-    */
+#else
     vco_available = false;                
+#endif //VCO
+
     /*--- Start the other subsystems*/
 
     const PIO pio = pio0;
@@ -912,21 +976,6 @@ int main(void) {
     /* Rojo: se alcanzó main(), pero USB todavía no fue inicializado. */
     set_led(pio, state_machine, 24, 0, 0);
 
-    /*
-    sleep_ms(1000);
-    tusb_rhport_init_t dev_init = {
-      .role  = TUSB_ROLE_DEVICE,
-      .speed = TUSB_SPEED_AUTO
-    };
-
-    tusb_init(BOARD_TUD_RHPORT, &dev_init);
-
-    sleep_ms(500);
-    stdio_init_all();
-    */
-
-
-
     tusb_rhport_init_t dev_init = {
         .role  = TUSB_ROLE_DEVICE,
         .speed = TUSB_SPEED_FULL
@@ -935,13 +984,13 @@ int main(void) {
 
     set_led(pio, state_machine, 24, 0, 0);  // rojo: antes de TinyUSB
 
-bool usb_ok = tusb_init(BOARD_TUD_RHPORT, &dev_init);
+    bool usb_ok = tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
-if (usb_ok) {
-    set_led(pio, state_machine, 24, 24, 0); // amarillo: init correcta
-} else {
-    set_led(pio, state_machine, 0, 0, 24);  // azul: init devolvió false
-}
+    if (usb_ok) {
+       set_led(pio, state_machine, 24, 24, 0); // amarillo: init correcta
+    } else {
+       set_led(pio, state_machine, 0, 0, 24);  // azul: init devolvió false
+    }
 
     
     wait_for_usb_monitor();
@@ -977,7 +1026,9 @@ if (usb_ok) {
 
     /*--- Wait for USB monitor and show banner if in DEBUG mode*/
 
+#ifdef WAITSERIAL
     wait_for_usb_monitor();
+#endif
 
     cdc_printf("testVCO iniciado en Waveshare RP2040-Zero\r\n");
     cdc_printf("LED WS2812: GPIO %u\r\n", PICO_DEFAULT_WS2812_PIN);
