@@ -1,0 +1,47 @@
+; Project PixiePico
+; Pixie based digital transceiver firmware
+; Manage the build in LED
+; 
+; Copyright Dr. Pedro E. Colla LU7DZ (2026)
+; For non-profit uses only
+; ================================================================
+; Este programa  disponible es hecho público
+; bajo la licencia Creative Commons Attribution-ShareAlike 4.0
+; International (CC BY-SA 4.0).
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1]
+    jmp !x do_zero side 1 [T1 - 1]
+do_one:
+    jmp bitloop    side 1 [T2 - 1]
+do_zero:
+    nop            side 0 [T2 - 1]
+.wrap
+
+% c-sdk {
+static inline void ws2812_program_init(PIO pio, uint sm, uint offset,
+                                       uint pin, float frequency, bool rgbw) {
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config config = ws2812_program_get_default_config(offset);
+    sm_config_set_sideset_pins(&config, pin);
+    sm_config_set_out_shift(&config, false, true, rgbw ? 32 : 24);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+
+    const int cycles_per_bit = ws2812_T1 + ws2812_T2 + ws2812_T3;
+    const float divider = clock_get_hz(clk_sys) /
+                          (frequency * cycles_per_bit);
+    sm_config_set_clkdiv(&config, divider);
+
+    pio_sm_init(pio, sm, offset, &config);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

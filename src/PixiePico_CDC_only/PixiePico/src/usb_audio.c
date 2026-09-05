@@ -88,12 +88,8 @@ static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
 // Audio controls
 // Current states
-//int8_t mute[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX + 1];       // +1 for master channel 0
-//int16_t volume[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX + 1];    // +1 for master channel 0
-
-int8_t mute[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX + 1];
-int16_t volume[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX + 1];
-
+int8_t mute[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX + 1];       // +1 for master channel 0
+int16_t volume[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX + 1];    // +1 for master channel 0
 
 // Buffer for microphone data
 int32_t mic_buf[CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ / 4];
@@ -253,17 +249,6 @@ static bool tud_audio_clock_set_request(uint8_t rhport, audio_control_request_t 
 // Helper for feature unit get requests
 static bool tud_audio_feature_unit_get_request(uint8_t rhport, audio_control_request_t const *request)
 {
-
-  TU_VERIFY(request->bChannelNumber <=
-              CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX);
-
-    if (request->bControlSelector == AUDIO_FU_CTRL_MUTE &&
-        request->bRequest == AUDIO_CS_REQ_CUR)
-    {
-        audio_control_cur_1_t mute1 = {
-            .bCur = mute[request->bChannelNumber]
-        };
-
   TU_ASSERT(request->bEntityID == UAC2_ENTITY_SPK_FEATURE_UNIT);
 
   if (request->bControlSelector == AUDIO_FU_CTRL_MUTE && request->bRequest == AUDIO_CS_REQ_CUR)
@@ -323,8 +308,6 @@ static bool tud_audio_feature_unit_get_request(uint8_t rhport, audio_control_req
   
   return false;
 }
-    return false;
-}  // cierre de tud_audio_feature_unit_get_request()
 
 // Helper for feature unit set requests
 static bool tud_audio_feature_unit_set_request(uint8_t rhport, audio_control_request_t const *request, uint8_t const *buf)

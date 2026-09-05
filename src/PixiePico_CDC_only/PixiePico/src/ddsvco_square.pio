@@ -1,0 +1,19 @@
+; Project PixiePico
+; Pixie based digital transceiver firmware
+; PixiePico testVCO: square wave signal generator
+; Two PIO instructions executed each perior, one high and one low
+; the frequency is set by the clock at which this PIO runs.
+;
+; Copyright Dr. Pedro E. Colla LU7DZ (2026)
+; For non-profit uses only
+; ================================================================
+; Este programa  disponible es hecho público
+; bajo la licencia Creative Commons Attribution-ShareAlike 4.0
+; International (CC BY-SA 4.0).
+.program ddsvco_square
+.side_set 1
+
+.wrap_target
+    nop side 1
+    nop side 0
+.wrap

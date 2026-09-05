@@ -301,7 +301,6 @@ static bool adc_read_average(int32_t *result)
             ++samples;
             continue;
         }
-        
 
         /*
          * Evita dejar sin servicio USB y los controles mientras
@@ -437,7 +436,7 @@ void displayMode(uint8_t m) {
         return;
     }
 
-    char mode[4];
+    char mode[5];
     switch(m) {
         case 0 : {sprintf(mode,"WSPR");break;}
         case 1 : {sprintf(mode,"FT4");break;}

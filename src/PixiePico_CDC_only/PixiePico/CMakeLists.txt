@@ -26,14 +26,31 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 pico_sdk_init()
 
-add_executable(PixiePico
+option(PIXIE_ENABLE_USB_AUDIO
+       "Enable the TinyUSB UAC2 audio interfaces"
+       OFF)
+
+set(PIXIEPICO_SOURCES
     src/main.c
     src/ddsvco.c
     src/rotary_encoder.c
     src/ssd1306.c
-    src/usb_audio.c
     src/usb_descriptors.c
 )
+
+if(PIXIE_ENABLE_USB_AUDIO)
+    list(APPEND PIXIEPICO_SOURCES src/usb_audio.c)
+else()
+    list(APPEND PIXIEPICO_SOURCES src/usb_audio_stub.c)
+endif()
+
+add_executable(PixiePico ${PIXIEPICO_SOURCES})
+
+if(PIXIE_ENABLE_USB_AUDIO)
+    target_compile_definitions(PixiePico PRIVATE PIXIE_USB_AUDIO=1)
+else()
+    target_compile_definitions(PixiePico PRIVATE PIXIE_USB_AUDIO=0)
+endif()
 
 pico_generate_pio_header(PixiePico
     ${CMAKE_CURRENT_LIST_DIR}/src/ws2812.pio
