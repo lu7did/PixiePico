@@ -1,9 +1,6 @@
 /*
 Project PixiePico
-
 Pixie based digital transceiver firmware
-Test firmware, basic GUI workbench and verification
-DDS algorithm
 
 Copyright Dr. Pedro E. Colla LU7DZ (2026)
 For non-profit uses only
@@ -112,7 +109,6 @@ International (CC BY-SA 4.0).
 //*==============================================================================================*
 //*                             Macros and Structures                                            *
 //*==============================================================================================*
-
 #ifdef DEBUG
 
 #define cdc_printf(fmt, ...)                                      \
@@ -164,7 +160,8 @@ typedef struct {
 #define DEFAULT_SHIFT        0
 #define DEFAULT_STEP         0
 #define NBANDS               3
-#define NMODES               5
+#define NMODES               6
+
 #define OLED_I2C i2c0
 #define OLED_SDA_PIN 0
 #define OLED_SCL_PIN 1
@@ -175,8 +172,10 @@ typedef struct {
 #define ENCODER_DT_PIN  28
 #define ENCODER_SW_PIN  27
 #define ENCODER_FREQUENCY_STEP_HZ 10L
+
 #define BLINK_INTERVAL_MS 500
 #define WS2812_FREQUENCY_HZ 800000.0f
+
 #define DDSVCO_OUTPUT_GPIO DDSVCO_DEFAULT_GPIO
 #define DDSVCO_TUNE_SETTLE_MS 350u
 
@@ -204,6 +203,39 @@ typedef struct {
 #define TRACE_LOOP_END   0x80u
 #define TRACE_VCO_DONE   0x90u
 #endif //WATCHDOG
+
+//*--- Menu definitions
+
+#define MENU_600HZ       0x00
+#define MENU_700HZ       0x01
+#define MENU_800HZ       0x02
+
+#define MENU_40M         0x00
+#define MENU_20M         0x01
+#define MENU_10M         0x02
+
+#define MENU_10HZ        0x00
+#define MENU_100HZ       0x01
+#define MENU_1000HZ      0x02
+
+#define MENU_WSPR        0x00
+#define MENU_FT4         0x01
+#define MENU_JS8         0x02
+#define MENU_FT8         0x03
+#define MENU_CW          0x04
+#define MENU_DIG         0x05
+
+#define MENU_VFOA        0x00
+#define MENU_VFOB        0x01
+
+#define MENU_MAX         0x05
+
+#define MENU_BAND    0x00
+#define MENU_MODE    0x01
+#define MENU_VFO     0x02
+#define MENU_SHIFT   0x03
+#define MENU_STEP    0x04
+#define MENU_WATCH   0x05
 
 //*==============================================================================================*
 //*                                  Global Memory Areas                                         *
@@ -244,9 +276,9 @@ bool     iWatch=false;
 uint32_t fStep=ENCODER_FREQUENCY_STEP_HZ;
 
 long unsigned int Bands[NBANDS][NMODES] = {
-              { 7038600, 7078000, 7047500, 7074000,7030000},
-              {14095600,14078000,14080000,14074000,14020000},
-              {28124600,28078000,28180000,28074000,28020000}};
+              { 7038600, 7078000, 7047500, 7074000,7030000,7000000},
+              {14095600,14078000,14080000,14074000,14020000,14000000},
+              {28124600,28078000,28180000,28074000,28020000,28000000}};
 
 
 
@@ -441,18 +473,16 @@ void displayMode(uint8_t m) {
         return;
     }
 
-    char mode[4];
+    char mode[5];
     switch(m) {
-        case 0 : {sprintf(mode,"WSPR");break;}
-        case 1 : {sprintf(mode,"FT4");break;}
-        case 2 : {sprintf(mode,"JS8");break;}
-        case 3 : {sprintf(mode,"FT8");break;}
-        case 4 : {sprintf(mode,"CW");break;}
-    }
-//    snprintf(visible_m
-//        ode, sizeof(visible_mode), "%.3s",
-//             mode != NULL ? mode : "");
+        case MENU_WSPR : {sprintf(mode,"WSPR");break;}
+        case MENU_FT4  : {sprintf(mode,"FT4");break;}
+        case MENU_JS8  : {sprintf(mode,"JS8");break;}
+        case MENU_FT8  : {sprintf(mode,"FT8");break;}
+        case MENU_CW   : {sprintf(mode,"CW");break;}
+        case MENU_DIG  : {sprintf(mode,"DIG");break;}
 
+    }
 
     fill_rectangle(&oled, 0, 0, 20, 9, false);
     ssd1306_draw_text(&oled, 0, 1, mode, 1);
@@ -470,12 +500,10 @@ void displayVFO(uint8_t v) {
     
     char vfo[5];
     switch(v) {
-        case 0  : {sprintf(vfo,"VFOA");break;}
-        case 1  : {sprintf(vfo,"VFOB");break;}
+        case MENU_VFOA  : {sprintf(vfo,"VFOA");break;}
+        case MENU_VFOB  : {sprintf(vfo,"VFOB");break;}
         default : {sprintf(vfo,"VFO*");break;}
     }
-    //snprintf(visible_vfo, sizeof(visible_vfo), "%.4s",
-    //         v != NULL ? vfo : "");
 
     fill_rectangle(&oled, 22, 0, 27, 9, false);
     ssd1306_draw_text(&oled, 22, 1, vfo, 1);
@@ -511,8 +539,8 @@ void displayLED(unsigned level) {
         return;
     }
 
-    if (level > 5) {
-        level = 5;
+    if (level > MENU_MAX) {
+        level = MENU_MAX;
     }
 
     const int led_start_x = 75;
@@ -610,19 +638,21 @@ void displayPanel() {
    Show menu (first level)
 */
 void showMenu(uint8_t i) {
-    char hi[16];
+    char hi[24];
     clearOLED();
    
     if (!editMode){
        switch(i) {
-           case 0 : {snprintf(hi,sizeof(hi),"%d-Band",i);break;}
-           case 1 : {snprintf(hi,sizeof(hi),"%d-Mode",i);break;}
-           case 2 : {snprintf(hi,sizeof(hi),"%d-VFO",i);break;}
-           case 3 : {snprintf(hi,sizeof(hi),"%d-Shift",i);break;}
-           case 4 : {snprintf(hi,sizeof(hi),"%d-Step",i);break;}
-           case 5 : {snprintf(hi,sizeof(hi),"%d-Watch",i);break;}
+           case MENU_BAND  : {snprintf(hi,sizeof(hi),"%d-Band",i);break;}
+           case MENU_MODE  : {snprintf(hi,sizeof(hi),"%d-Mode",i);break;}
+           case MENU_VFO   : {snprintf(hi,sizeof(hi),"%d-VFO",i);break;}
+           case MENU_SHIFT : {snprintf(hi,sizeof(hi),"%d-Shift",i);break;}
+           case MENU_STEP  : {snprintf(hi,sizeof(hi),"%d-Step",i);break;}
+           case MENU_WATCH : {snprintf(hi,sizeof(hi),"%d-Watch",i);break;}
         } 
     }
+
+
     fill_rectangle(&oled, 0, 0, 128, 32, false);
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
     refresh_oled();
@@ -641,9 +671,9 @@ void showBand() {
     refresh_oled();
 
     switch(iBand) {
-       case 0   : {sprintf(hi,"40m");break;}
-       case 1   : {sprintf(hi,"20m");break;}
-       case 2   : {sprintf(hi,"10m");break;}
+       case MENU_40M   : {sprintf(hi,"40m");break;}
+       case MENU_20M   : {sprintf(hi,"20m");break;}
+       case MENU_10M   : {sprintf(hi,"10m");break;}
     }
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
     refresh_oled();
@@ -664,11 +694,12 @@ void showMode() {
     refresh_oled();
 
     switch(iMode) {
-       case 0   : {sprintf(hi,"FT8");break;}
-       case 1   : {sprintf(hi,"JS8");break;}
-       case 2   : {sprintf(hi,"WSPR");break;}
-       case 3   : {sprintf(hi,"FT4");break;}
-       case 4   : {sprintf(hi,"CW");break;}
+       case MENU_WSPR   : {sprintf(hi,"WSPR");break;}
+       case MENU_FT4    : {sprintf(hi,"FT4");break;}
+       case MENU_JS8    : {sprintf(hi,"JS8");break;}
+       case MENU_FT8    : {sprintf(hi,"FT8");break;}
+       case MENU_CW     : {sprintf(hi,"CW");break;}
+       case MENU_DIG     : {sprintf(hi,"CW");break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -690,8 +721,8 @@ void showVFO() {
     refresh_oled();
 
     switch(iVfo) {
-       case 0   : {sprintf(hi,"VFOA");break;}
-       case 1   : {sprintf(hi,"VFOB");break;}
+       case MENU_VFOA   : {sprintf(hi,"VFOA");break;}
+       case MENU_VFOB   : {sprintf(hi,"VFOB");break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -711,9 +742,9 @@ void showShift() {
     refresh_oled();
 
     switch(iShift) {
-       case 0   : {sprintf(hi,"600 HZ");break;}
-       case 1   : {sprintf(hi,"700 HZ");break;}
-       case 2   : {sprintf(hi,"800 HZ");break;}
+       case MENU_600HZ   : {sprintf(hi,"600 HZ");break;}
+       case MENU_700HZ   : {sprintf(hi,"700 HZ");break;}
+       case MENU_800HZ   : {sprintf(hi,"800 HZ");break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -734,9 +765,9 @@ void showStep() {
     refresh_oled();
 
     switch(iStep) {
-       case 0   : {sprintf(hi,"10 HZ");fStep=10L;break;}
-       case 1   : {sprintf(hi,"100 HZ");fStep=100L;break;}
-       case 2   : {sprintf(hi,"1000 HZ");fStep=1000L;break;}
+       case MENU_10HZ     : {sprintf(hi,"10 HZ");fStep=10L;break;}
+       case MENU_100HZ    : {sprintf(hi,"100 HZ");fStep=100L;break;}
+       case MENU_1000HZ   : {sprintf(hi,"1000 HZ");fStep=1000L;break;}
     }
 
     ssd1306_draw_text_color(&oled, 8, 12, hi, 2, true);
@@ -816,7 +847,7 @@ static uint8_t wrap_add(uint8_t value, int delta, uint8_t count) {
 void updateMenu(uint8_t m, int s) {
     switch(m) {
         case 0 : {iBand=wrap_add(iBand,s,3);break;}
-        case 1 : {iMode=wrap_add(iMode,s,5);break;}
+        case 1 : {iMode=wrap_add(iMode,s,6);break;}
         case 2 : {iVfo=wrap_add(iVfo,s,2);break;}
         case 3 : {iShift=wrap_add(iShift,s,3);break;}
         case 4 : {iStep=wrap_add(iStep,s,3);break;}
@@ -825,8 +856,7 @@ void updateMenu(uint8_t m, int s) {
     displayMenu(m);
     current_frequency_hz = Bands[iBand][iMode];
     vco_frequency_pending = true;
-    vco_frequency_deadline =
-        delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
+    vco_frequency_deadline = delayed_by_ms(get_absolute_time(), DDSVCO_TUNE_SETTLE_MS);
 
 }
 /*=============================================================================
@@ -860,7 +890,6 @@ void updateMenu(uint8_t m, int s) {
     } else {
        cdc_printf("VCO not available\n"); 
     }   
-    //fflush(stdout);
 }
 
 
@@ -872,8 +901,7 @@ void SWclick(bool pressed) {
     if (!rotary_available) {
         return;
     }
-    cdc_printf("SW: %s\r\n", pressed ? "presionado" : "liberado");
-    //fflush(stdout);
+    cdc_printf("SW: %s\r\n", pressed ? "pressed" : "released");
 
     if(pressed) {
       timerSW = time_us_32();
@@ -916,19 +944,16 @@ void SWclick(bool pressed) {
            editMode=false;
            displayPanel();
            cdc_printf("Switch back to Panel\n");
-           //fflush(stdout);
            return;
         }
         editMode=false;
         displayMenu(menuItem);
         cdc_printf("Switch back to Menu\n");
-        //fflush(stdout);
         return;
 
       }  
     }
 }
-
 
 /* --- Write to Serial Monitor
 */
@@ -969,8 +994,8 @@ static bool cdc_write_all(const char *data,
     }
 
     /*
-     * Permite que TinyUSB entregue el último paquete al controlador USB.
-     * No es necesario esperar mucho.
+     * Allow TinyUSB to deliver the last package to the USB controller.
+     * Shouldn't wait long though
      */
     tud_cdc_n_write_flush(0);
 
@@ -987,6 +1012,9 @@ static bool cdc_write_all(const char *data,
                             Manage Keyer
   =============================================================================*/
 #ifdef KEYER
+/*-----------------------------------------------------------------
+  initialize the keyer
+*/
 static void push_button_init(uint gpio)
 {
     gpio_init(gpio);
@@ -998,6 +1026,9 @@ static void push_button_init(uint gpio)
      */
     gpio_pull_up(gpio);
 }
+/*-----------------------------------------------------------------
+  check if keyer is pressed
+*/
 
 static bool push_button_is_pressed(uint gpio)
 {
@@ -1005,6 +1036,12 @@ static bool push_button_is_pressed(uint gpio)
     return gpio_get(gpio) == 0;
 }
 #endif //KEYER
+/*-----------------------------------------------------------------
+  set frequency of the VCO
+  solve the new requirement
+  update the divisors
+*/
+
 void setFreq(uint32_t f) {
     if (vco_available) {
         vco_frequency_pending = false;
@@ -1037,9 +1074,9 @@ void setTX(bool t)
 
     if (t) {            //Turn on transmitter 
        displayLED(5);
-       if (iMode == 4) {
+       if (iMode == MENU_40M) {    // 40m shift is in the opposite direction
 
-          int s=(600+iShift*100);
+          int s=(MENU_600HZ+iShift*MENU_100HZ);
           if (iBand == 0) {
              s=-s;
           }
@@ -1053,12 +1090,23 @@ void setTX(bool t)
     }
 
 }
-void setLED(bool t) {
-    if (t) {
-        set_led(pio, state_machine, 24, 0, 0);
+/* --- Set the board led (rp2040 only)
+*/
+
+void setLED(bool t,bool m) {
+
+    #ifdef RP2040Z                //RP2040Z got a very unique LED
+    if (!m) {
+       if (t) {
+          set_led(pio, state_machine, 24, 0, 0);
+       } else {
+          set_led(pio, state_machine, 0, 24, 0);
+       }  
     } else {
-        set_led(pio, state_machine, 0, 24, 0);
-    }  
+       set_led(pio, state_machine, 0, 0, 24);
+
+    }
+    #endif //RP2040Z
 }
 /*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 /*                               MAIN                                      */
@@ -1066,19 +1114,23 @@ void setLED(bool t) {
 
 int main(void) {
 
+    //*--- Establish the watchdog and retrieve last trigger
+
     #ifdef WATCHDOG
     const bool rebooted_by_watchdog = watchdog_caused_reboot();
     const uint32_t watchdog_trace = watchdog_hw->scratch[0];
     watchdog_hw->scratch[0] = TRACE_BOOT;
     #endif //WATCHDOG
 
+    //*--- Configure Keyer and PTT
+
     #ifdef KEYER
     push_button_init(PUSH_BUTTON_GPIO);
     keyer_available = true;
+    bool previous_push_button = false;
     #endif //KEYER
 
-    /* --- Initializes VCO sub-system 
-    */
+     //*--- Initialize and configure the VCO sub-system
     #ifdef VCO 
     
     uint32_t pending_frequency_hz;
@@ -1106,10 +1158,7 @@ int main(void) {
     vco_available = false;                
 #endif //VCO
 
-    /*--- Start remaining available subsystems*/
-
-    /* --- Initializes a PIO to start the ws2812 built in LED
-    */
+    //*--- Initialize WS2812 LED and PIO system to manage it
     const uint pio_offset = pio_add_program(pio, &ws2812_program);
 
     ws2812_program_init(
@@ -1121,25 +1170,25 @@ int main(void) {
         false
     );
 
-    /* Red: Indicates within initialization (error if lasting too long) */
+    //*--- Initial colour is RED, it it hangs it is left with that colour
     set_led(pio, state_machine, 24, 0, 0);
 
+    //*--- If coming from a watchdog reboot mark it with the LED in blue
+    #ifdef WATCHDOG
     if (rebooted_by_watchdog) {
-    /*
-     * Azul durante dos segundos: el arranque actual fue causado
-     * por watchdog.
-     */
+       //*--- if coming from a watchdog flash blue led for 2 secs
+
        set_led(pio, state_machine, 0, 0, 24);
        sleep_ms(2000);
-     } else {
-    /*
-     * Rojo: arranque normal.
-     */
+
+    } else {
+
+       //*--- Briefly flash Red LED if starting normally
        set_led(pio, state_machine, 24, 0, 0);
     }
+    #endif //WATCHDOG
 
-    /*--- Initialize USB serial port
-    */
+    //*--- Initialize the USB (CDC-Serial port, AUDIO)
     tusb_rhport_init_t dev_init = {
         .role  = TUSB_ROLE_DEVICE,
         .speed = TUSB_SPEED_FULL
@@ -1149,16 +1198,14 @@ int main(void) {
     bool usb_ok = tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
     if (usb_ok) {
-       set_led(pio, state_machine, 24, 24, 0); // Yellow: Init has been Ok
+       set_led(pio, state_machine, 24, 24, 0); // Yellow: Init has been Ok, Wait
     } else {
        set_led(pio, state_machine, 0, 0, 24);  // Blue: Something went wrong
     }
 
-    /*--- If in DEBUG mode wait for the Serial Monitor window to open
-    */
+    //*--- If Serial Monitor is enabled (mostly in DEBUG) wait for it to be opened
     #ifdef WAITSERIAL
-    // wait_for_usb_monitor();
-    
+   
     bool serial_ready = false;
 
     if (usb_ok) {
@@ -1166,18 +1213,17 @@ int main(void) {
     }
     #endif //WAITSERIAL
 
-    /*--- If init got thus far everything seems to be ok
-    */
-    set_led(pio, state_machine, 0, 0, 24);  // Green, initialization completed
+    set_led(pio, state_machine, 24, 0, 0);  // Green, initialization completed
     
-    /*--- Initialize another PIO for the built in LED*/
-       /*--- Define I/O mapping for I2C subsystem*/
-    
+    //*--- Define I/O subsystem for the I2C port (OLED display)    
+
+    #ifdef OLED
     i2c_init(OLED_I2C, OLED_I2C_FREQUENCY_HZ);
     gpio_set_function(OLED_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(OLED_SCL_PIN, GPIO_FUNC_I2C);
     gpio_pull_up(OLED_SDA_PIN);
     gpio_pull_up(OLED_SCL_PIN);
+    #endif //OLED
 
     /*--- Initialize and define the encoder */
     #ifdef ROTARY
@@ -1200,7 +1246,6 @@ int main(void) {
     if (current_frequency_hz <= 0) {
         current_frequency_hz = Bands[iBand][iMode];
     }
-
 
     /*--- Display panel */
     if (oled_available) {
@@ -1270,6 +1315,7 @@ int main(void) {
     delayed_by_ms(get_absolute_time(), BLINK_INTERVAL_MS);
 
     /*--- This is the initial hardware setup of the transceiver ---*/
+    
     //*--- GPIO setting for the ADC control (receiver) 
     gpio_init(pin_A0);
     gpio_set_dir(pin_A0, GPIO_IN); //ADC input pin
@@ -1283,23 +1329,17 @@ int main(void) {
     adc_init();
     adc_select_input(0); 
                            // ADC input pin A0
-    //adc_run(true);                              // start ADC free running
-    //adc_set_clkdiv(249.0);                      // 192kHz sampling  (48000 / (249.0 +1) = 192)
-    //adc_fifo_setup(true,false,0,false,false);   // fifo
     adc_init();
     adc_gpio_init(pin_A0);
     adc_select_input(0);
-
     adc_run(false);
-
     adc_set_clkdiv(249.0f);
-
     adc_fifo_setup(
-       true,   /* FIFO habilitada */
-       false,  /* sin DREQ */
-       1,      /* umbral válido */
-       false,  /* no incluir ERR */
-       false   /* no desplazar a 8 bits */
+       true,   /* FIFO enabled */
+       false,  /* w/o DREQ */
+       1,      /* threshold válido */
+       false,  /* do not include ERR */
+       false   /* do not shift  8 bits */
     );
 
     adc_fifo_drain();
@@ -1307,7 +1347,7 @@ int main(void) {
     
     cdc_printf("ADC receiver sub-system initialized\n");
 
-      //*--- USB Audio initialization (initialization of monodata[])
+    //*--- USB Audio initialization (initialization of monodata[])
     for (int i = 0; i < (CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ / 4); i++) {
        monodata[i] = 0;
     }
@@ -1328,18 +1368,13 @@ int main(void) {
     }
     
     cdc_printf("ADC input offset callibrated\n");
+
+    //*--- Enable and kick the watchdog (every 5 secs)
     #ifdef WATCHDOG
     bool watchdog_report_pending = rebooted_by_watchdog;
-    #endif //WATCHDOG
-
-    
-    #ifdef WATCHDOG
     watchdog_enable(5000, false);
     #endif //WATCHDOG
 
-    #ifdef KEYER
-    bool previous_push_button = false;
-    #endif //KEYER
 
     absolute_time_t next_cdc_test =
     delayed_by_ms(get_absolute_time(), 1000);
@@ -1357,7 +1392,8 @@ int main(void) {
        #endif //WATCHDOG
        
        tud_task_ext(0, false);
-       /*-------------------- Housekeeping ---------------------------------*/
+
+        /*-------------------- Housekeeping ---------------------------------*/
         /*--- Manage rotary decoder changes */
         #ifdef ROTARY
         
@@ -1400,8 +1436,9 @@ int main(void) {
         }
         #endif //ROTARY
 
-        /*--- Manage changes in the VCO frequency */
 
+        /*--- Manage changes in the VCO frequency */
+        #ifdef VCO
         if (vco_available && vco_frequency_pending &&
             time_reached(vco_frequency_deadline) && !TX) {
             vco_frequency_pending = false;
@@ -1441,6 +1478,8 @@ int main(void) {
                    vco_solution.error_hz,
                    vco_solution.error_ppm);
         }
+        #endif //VCO
+
         /*--- Check Keyer ---*/
         #ifdef KEYER
         bool current_push_button=push_button_is_pressed(PUSH_BUTTON_GPIO);
@@ -1448,7 +1487,7 @@ int main(void) {
             previous_push_button = current_push_button;
             TX=current_push_button;
             setTX(TX);
-            setLED(TX);
+            setLED(TX,menuMode);
 
         }
         #endif //KEYER
@@ -1457,7 +1496,6 @@ int main(void) {
         #ifdef WATCHDOG
         watchdog_hw->scratch[0] = TRACE_LED;
         #endif //WATCHDOG
-
         
         if (time_reached(next_blink)) {
             next_blink = delayed_by_ms(next_blink, BLINK_INTERVAL_MS);
@@ -1468,7 +1506,7 @@ int main(void) {
                 led_level = 0;
             }
             if (is_on) {
-                setLED(TX);
+                setLED(TX,menuMode);
             } else {
                 set_led(pio, state_machine, 0, 0, 0);
             }
@@ -1492,17 +1530,16 @@ int main(void) {
         }
 
          sleep_ms(1);
+
+         /*
+          * After all tasks has been completed refresh the watchdog
+          * if anything blocks the thread then the watchdog is triggered
+         */
+
          #ifdef WATCHDOG
          watchdog_hw->scratch[0] = TRACE_LOOP_END;
+         watchdog_update();
          #endif //WATCHDOG
-
-    /*
-     * After all tasks has been completed refresh the watchdog
-     * if anything blocks the thread then the watchdog is triggered
-     */
-        #ifdef WATCHDOG
-        watchdog_update();
-        #endif //WATCHDOG
     }
 }
 //*----------------------------------------------------------------------------*/
@@ -1572,8 +1609,10 @@ void transmitting(){
        uint32_t f = frqFT8 + (uint32_t)audio_freq;
 
        //*--- as the FSK frequency has been detected change the DCO accordingly
-       //*---- Change Frequecy here PioDCOSetFreq(&DCO, f, 0U);
-       
+
+       /*---------------------------------------------------
+             PENDING IMPLEMENTATION OF FREQ CHANGE
+       */
        cdc_printf("FSK(%" PRIu64 ") Hz\n ",audio_freq);
 
        //*--- and initialize next averaging cycle
@@ -1595,7 +1634,8 @@ void transmitting(){
       cdc_printf("End of transmission\n");
       TX = false;
       setTX(TX);
-      setLED(TX);
+      setLED(TX,menuMode);
+      
       //*--- Prepare for next cycle
 
       cycle = 0;
@@ -1603,7 +1643,10 @@ void transmitting(){
       mono_preprev = 0;
       mono_prev = 0;     
 
-      //*--- Return the DCO frequency to the base in order to operate as a receiver
+       //*--- Return the frequency to the base in order to operate as a receiver
+       /*---------------------------------------------------
+             PENDING IMPLEMENTATION OF FREQ CHANGE
+       */
 
       return;
     }
@@ -1626,7 +1669,7 @@ void receiving() {
 
     TX=true;
     setTX(TX);
-    setLED(TX);
+    setLED(TX,menuMode);
     return;
   }
 
@@ -1635,8 +1678,8 @@ void receiving() {
 
   if (!adc_read_average(&adc_value)) {
     /*
-     * No bloquear todo el transceptor si el ADC deja de producir.
-     * La próxima iteración volverá a intentarlo.
+     * Avoid blocking the transceiver if no signal is present.
+     * 
      */
     return;
   }
