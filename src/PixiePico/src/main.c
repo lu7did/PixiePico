@@ -71,6 +71,7 @@ International (CC BY-SA 4.0).
 #define  ROTARY     1
 #define  WATCHDOG   1
 #define  KEYER      1
+#define  PTT        1
 //#define  EEPROM     1   
 //#define  FS         1
 
@@ -149,49 +150,6 @@ typedef struct {
 //*==============================================================================================*
 //*                             Constants and parameters                                         *
 //*==============================================================================================*
-#define AUDIOSAMPLING    48000            // USB Audio sampling frequency (fixed)
-#define PLL_SYS_MHZ        250            // RP2040 System Clock (MHz)  
-#define PLL_SYS_MHZ_PLUS   250            // RP2040 System Clock (MHz) --OVERCLOCK--
-#define GEN_FRQ_HZ     7074000L           // Generator Frequency (in Hz)
-#define FT8_BASE_HZ       1000L           // FT8 base frequency (in Hz) <Not used>
-#define DEFAULT_MODE         4            // Default mode FT8
-#define DEFAULT_BAND         0            // Default band 40m
-#define DEFAULT_VFO          0            // Default Vfo A
-#define DEFAULT_SHIFT        0
-#define DEFAULT_STEP         0
-#define NBANDS               3
-#define NMODES               6
-
-#define OLED_I2C i2c0
-#define OLED_SDA_PIN 0
-#define OLED_SCL_PIN 1
-#define OLED_I2C_ADDRESS 0x3C
-#define OLED_I2C_FREQUENCY_HZ 400000
-
-#define ENCODER_CLK_PIN 29
-#define ENCODER_DT_PIN  28
-#define ENCODER_SW_PIN  27
-#define ENCODER_FREQUENCY_STEP_HZ 10L
-
-#define BLINK_INTERVAL_MS 500
-#define WS2812_FREQUENCY_HZ 800000.0f
-
-#define DDSVCO_OUTPUT_GPIO DDSVCO_DEFAULT_GPIO
-#define DDSVCO_TUNE_SETTLE_MS 350u
-
-#ifndef PICO_DEFAULT_WS2812_PIN
-#define PICO_DEFAULT_WS2812_PIN 16
-#endif
-
-#define LONGPUSH 2000000
-#define MAXMENU  5
-
-#define pin_A0               26U          //pin for ADC (A2)
-
-#ifdef KEYER
-#define PUSH_BUTTON_GPIO      5u
-#endif //KEYER 
-
 #ifdef WATCHDOG
 #define TRACE_BOOT       0x10u
 #define TRACE_USB        0x20u
@@ -237,6 +195,58 @@ typedef struct {
 #define MENU_STEP    0x04
 #define MENU_WATCH   0x05
 
+
+
+#define AUDIOSAMPLING    48000            // USB Audio sampling frequency (fixed)
+#define PLL_SYS_MHZ        250            // RP2040 System Clock (MHz)  
+#define PLL_SYS_MHZ_PLUS   250            // RP2040 System Clock (MHz) --OVERCLOCK--
+#define GEN_FRQ_HZ     7074000L           // Generator Frequency (in Hz)
+#define FT8_BASE_HZ       1000L           // FT8 base frequency (in Hz) <Not used>
+
+#define DEFAULT_MODE         MENU_CW            // Default mode FT8
+#define DEFAULT_BAND         MENU_40M            // Default band 40m
+#define DEFAULT_VFO          MENU_VFOA            // Default Vfo A
+#define DEFAULT_SHIFT        MENU_600HZ
+#define DEFAULT_STEP         MENU_100HZ
+
+#define NBANDS               3
+#define NMODES               6
+
+#define OLED_I2C i2c0
+#define OLED_SDA_PIN         0
+#define OLED_SCL_PIN         1
+#define OLED_I2C_ADDRESS  0x3C
+#define OLED_I2C_FREQUENCY_HZ 400000
+
+#define ENCODER_CLK_PIN     29
+#define ENCODER_DT_PIN      28
+#define ENCODER_SW_PIN      27
+
+#define PTT_GPIO             2
+
+//#define ENCODER_SW_PIN     27
+#define ENCODER_FREQUENCY_STEP_HZ 10L
+
+#define BLINK_INTERVAL_MS   500
+#define WS2812_FREQUENCY_HZ 800000.0f
+
+#define DDSVCO_OUTPUT_GPIO DDSVCO_DEFAULT_GPIO
+#define DDSVCO_TUNE_SETTLE_MS 350u
+
+#ifndef PICO_DEFAULT_WS2812_PIN
+#define PICO_DEFAULT_WS2812_PIN 16
+#endif
+
+#define LONGPUSH 2000000
+#define MAXMENU  5
+
+#define pin_A0                26U          //pin for ADC (A2)
+
+#ifdef KEYER
+#define PUSH_BUTTON_GPIO       5u
+#endif //KEYER 
+
+
 //*==============================================================================================*
 //*                                  Global Memory Areas                                         *
 //*==============================================================================================*
@@ -245,6 +255,7 @@ char hi[512];
 static ssd1306_t oled;
 static bool oled_available = false;
 static bool keyer_available=false;
+static bool ptt_available=false;
 static bool rotary_available = false;
 static long current_frequency_hz = GEN_FRQ_HZ;
 static ddsvco_t vco;
@@ -1025,7 +1036,21 @@ static void push_button_init(uint gpio)
      * Might be supplemented by an external pull up resistor
      */
     gpio_pull_up(gpio);
+
+    
 }
+/*-----------------------------------------------------------------
+  initialize the gpio output
+*/
+static bool output_init(uint gpio,bool v)
+{
+    gpio_init(gpio);
+    gpio_set_dir(gpio, GPIO_OUT);
+    gpio_put(gpio,v);
+    return true;
+    
+}
+
 /*-----------------------------------------------------------------
   check if keyer is pressed
 */
@@ -1069,15 +1094,14 @@ void setFreq(uint32_t f) {
 */
 void setTX(bool t)
 {
-    cdc_printf("Keyer(%s)\r\n",BOOL2CHAR(t));
+    cdc_printf("Keyer(%s) PTT(%d)\r\n",BOOL2CHAR(t),t);
     displayTX(t);
-
     if (t) {            //Turn on transmitter 
        displayLED(5);
-       if (iMode == MENU_40M) {    // 40m shift is in the opposite direction
+       if (iMode == MENU_CW) {    // CW && 40m shift is in the opposite direction
 
-          int s=(MENU_600HZ+iShift*MENU_100HZ);
-          if (iBand == 0) {
+          int s=(600u+iShift*100u);
+          if (iBand == MENU_40M) {
              s=-s;
           }
           cdc_printf("Applying shift %d\r\n",s);
@@ -1085,9 +1109,10 @@ void setTX(bool t)
           setFreq(f);
        }
     } else {            //Turn off transmitter (or Turn on receiver)
-       displayLED(0);
        setFreq(current_frequency_hz);
+       displayLED(0);
     }
+    gpio_put(PTT_GPIO,t);
 
 }
 /* --- Set the board led (rp2040 only)
@@ -1128,7 +1153,15 @@ int main(void) {
     push_button_init(PUSH_BUTTON_GPIO);
     keyer_available = true;
     bool previous_push_button = false;
+    #else
+    keyer_available=false;
     #endif //KEYER
+
+    #ifdef PTT
+    ptt_available=output_init(PTT_GPIO,false);
+    #else
+    ptt_available=false;
+    #endif //PTT
 
      //*--- Initialize and configure the VCO sub-system
     #ifdef VCO 
@@ -1279,9 +1312,10 @@ int main(void) {
            OLED_SDA_PIN, OLED_SCL_PIN, OLED_I2C_ADDRESS);
     cdc_printf("OLED %s; screen FT8/VFOA/TX, freq %ld\r\n",
            oled_available ? "detected" : "NOT detected",current_frequency_hz);
-    cdc_printf("Rotary encoder %s\r\n",rotary_available ? "detected" : "NOT detected");
-    cdc_printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d\r\n",
-           ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN);
+    cdc_printf("KY-040: CLK(A)=GPIO%d, DT(B)=GPIO%d, SW=GPIO%d (%s)\r\n", 
+           ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN,BOOL2CHAR(rotary_available));
+    cdc_printf("KEYER=GPIO%d (%s)\r\n",PUSH_BUTTON_GPIO,BOOL2CHAR(keyer_available));
+    cdc_printf("PTT=GPIO%d (%s)\r\n",PTT_GPIO,BOOL2CHAR(ptt_available));
     if (vco_available) {
         cdc_printf("VCO: GPIO%u, objetivo=%" PRIu32
                " Hz, PLL_SYS=%.6f Hz\r\n",
@@ -1319,6 +1353,7 @@ int main(void) {
     //*--- GPIO setting for the ADC control (receiver) 
     gpio_init(pin_A0);
     gpio_set_dir(pin_A0, GPIO_IN); //ADC input pin
+    cdc_printf("ADC: Defined GPIO%d\n\r",pin_A0);
   
     //*--- End of ADX control board initialization
     cdc_printf("PixiePico Board initialized\n");
